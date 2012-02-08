@@ -6,6 +6,7 @@ import cmd
 import jsonpickle
 import tempfile
 import zipfile
+import threading, time
 
 from setuptools.command import easy_install
 
@@ -16,10 +17,9 @@ from openmdao.main.variable import Variable
 
 from multiprocessing.managers import BaseManager
 from openmdao.main.factory import Factory
-from openmdao.main.factorymanager import create
+from openmdao.main.factorymanager import create, get_available_types
 from openmdao.main.component import Component
 from openmdao.main.driver import Driver
-from openmdao.main.factorymanager import get_available_types
 from openmdao.main.datatypes.slot import Slot
 
 from openmdao.lib.releaseinfo import __version__, __date__
@@ -32,7 +32,15 @@ from zope.interface import implementedBy
 
 import networkx as nx
 
+from openmdao.util.network import get_unused_ip_port
 from openmdao.gui.util import *
+
+import zmq
+from zmq.eventloop import ioloop
+from zmq.eventloop.zmqstream import ZMQStream
+ioloop.install()
+
+import random
 
 class ConsoleServerFactory(Factory):
     ''' creates and keeps track of :class:`ConsoleServer`
@@ -111,7 +119,7 @@ class ConsoleServer(cmd.Cmd):
         self.cout = StringIO()
         sys.stdout = self.cout
         sys.stderr = self.cout
-
+        
         self.intro  = 'OpenMDAO '+__version__+' ('+__date__+')'
         self.prompt = 'OpenMDAO>> '
         
@@ -135,7 +143,10 @@ class ConsoleServer(cmd.Cmd):
         self.projfile = ''
         self.proj = None
         self.exc_info = None
-
+        
+        self.cout_socket = None
+        self.cout_timer = None
+        
     def error(self,err,exc_info):
         ''' print error message and save stack trace in case it's requested
         '''
@@ -251,10 +262,75 @@ class ConsoleServer(cmd.Cmd):
     def get_output(self):
         ''' get any pending output and clear the outputput buffer
         '''
-        output = self.cout.getvalue()     
+        output = self.cout.getvalue()
         self.cout.truncate(0)
         return output
-        
+
+    def publish_output(self):
+        ''' publish any pending output and clear the outputput buffer
+        '''
+        try:
+            output = self.cout.getvalue()
+            if len(output) > 0:
+                self.cout_socket.send(output)
+                self.cout.truncate(0)
+        except Exception, err:
+            self.error(err,sys.exc_info())
+
+    def get_output_port(self):
+        ''' open a ZMQ socket and start publishing cout
+            return the address of the port it's running on
+        '''
+        try:
+            context = zmq.Context()
+            self.cout_socket = context.socket(zmq.PUB)            
+            port = get_unused_ip_port()
+            addr = "tcp://127.0.0.1:%i" % port
+            print "binding cout publisher on %s" % addr
+            self.cout_socket.bind(addr)
+            
+            self.cout_timer = RepeatTimer(2,self.publish_output)
+            self.cout_timer.start()
+            
+            return addr
+        except Exception, err:
+            self.error(err,sys.exc_info())
+
+    def publish_variables(self,socket,var_names):
+        ''' publish current values of specified variables
+        '''
+        try:
+            values = {}
+            for var in var_names:
+                val = self.get_value(var)
+                if val is not None:
+                    values[var] = val                
+            if len(values) > 0:
+                socket.send(jsonpickle.encode(values))
+        except Exception, err:
+            self.error(err,sys.exc_info())
+
+    def get_variables_port(self,var_names):
+        ''' open a ZMQ socket and start publishing the value of the variables
+            return the address of the port it's running on
+        '''
+        try:
+            context = zmq.Context()
+            socket = context.socket(zmq.PUB)            
+            port = get_unused_ip_port()
+            addr = "tcp://127.0.0.1:%i" % port
+            print "binding variables publisher on %s" % addr
+            socket.bind(addr)
+            
+            print 'starting variables publisher for',var_names
+            timer = RepeatTimer(1,self.publish_variables,args=(socket,var_names))
+            timer.start()
+            
+            return addr
+        except Exception, err:
+            self.error(err,sys.exc_info())
+
+
     def get_pid(self):
         ''' Return this server's :attr:`pid`. 
         '''
@@ -750,10 +826,14 @@ class ConsoleServer(cmd.Cmd):
     def write_file(self,filename,contents):
         ''' write contents to file in working directory
         '''
-        filepath = os.getcwd()+'/'+str(filename)
-        fout = open(filepath,'wb')
-        fout.write(contents)
-        fout.close()
+        try:
+            filepath = os.getcwd()+'/'+str(filename)
+            fout = open(filepath,'wb')
+            fout.write(contents)
+            fout.close()
+            return True
+        except Exception, err:
+            return err
 
     def add_file(self,filename,contents):
         ''' add file to working directory
@@ -798,3 +878,11 @@ class ConsoleServer(cmd.Cmd):
         print "Installing",distribution,"from",url
         easy_install.main( ["-U","-f",url,distribution] )
             
+    def get_value(self,pathname):
+        ''' get the value of the object with the given pathname
+        '''
+        try:
+            val, root = self.get_container(pathname)            
+            return val
+        except Exception, err:
+            print "error getting value:",err

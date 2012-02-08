@@ -12,7 +12,8 @@ openmdao.Console = function(formID,commandID,historyID,model) {
         historyBox = history.parent(),
         contextMenu = jQuery("<ul id="+historyID+"-menu class='context-menu'>"),
         interval = 0,  // ms
-        timer = null                   
+        timer = null,
+        sck = null
 
     // create context menu for history    
     contextMenu.append(jQuery('<li>Clear</li>').click(function(ev) {
@@ -24,9 +25,9 @@ openmdao.Console = function(formID,commandID,historyID,model) {
     contextMenu.append(jQuery('<li>Update</li>').click(function(ev) {
         update();
     }));
-    contextMenu.append(jQuery('<li>Polling...</li>').click(function(ev) {
-        promptForRefresh();
-    }));
+    // contextMenu.append(jQuery('<li>Polling...</li>').click(function(ev) {
+        // promptForRefresh();
+    // }));
     historyBox.append(contextMenu)
     ContextMenu.set(contextMenu.attr('id'), historyBox.attr('id'));
 
@@ -125,8 +126,21 @@ openmdao.Console = function(formID,commandID,historyID,model) {
     function update() {
         model.getOutput(updateHistory)
     }
-    
+
     // ask model for an update whenever something changes
-    model.addListener(update)
- 
+    //model.addListener(update)
+    
+    /** connect to a websocket */
+    var sck = new WebSocket('ws://localhost:9000/workspace/outputWS');
+    sck.onopen = function (e) {
+        debug.info('console socket opened',e);
+    };
+    sck.onclose = function (e) {
+        debug.info('console socket closed',e);
+    };
+    sck.onmessage = function(e) {
+        debug.info('console socket message:',e);
+        updateHistory(e.data);
+    };            
+    
 }
