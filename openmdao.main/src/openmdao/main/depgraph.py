@@ -27,7 +27,7 @@ def _split_expr(text):
     
 
 def _cvt_names_to_graph(srcpath, destpath):
-    """Translates model pathnames into pathnames in term of
+    """Translates model pathnames into pathnames in terms of
     our 'fake' graph nodes @xin, @bin, @bout, and @xout.
     """
     srcvar, _ = _split_expr(srcpath)
@@ -281,10 +281,8 @@ class DependencyGraph(object):
             List of component names
         """
         
-        out_set = set(self.var_edges(comps))
         in_set = set(self.var_in_edges(comps))
-        
-        return in_set.intersection(out_set)
+        return in_set.intersection(self.var_edges(comps))
         
     def connect(self, srcpath, destpath):
         """Add an edge to our Component graph from 
