@@ -107,7 +107,8 @@ class ExprPrinter(ast.NodeVisitor):
         
     def visit_Assign(self, node):
         for i,t in enumerate(node.targets):
-            if i>0: self.write(',')
+            if i>0: 
+                self.write(',')
             self.visit(t)
         self.write(' = ')
         self.visit(node.value)
@@ -144,25 +145,29 @@ class ExprPrinter(ast.NodeVisitor):
         self.write('(')
         total_args = 0
         for arg in node.args:
-            if total_args>0: self.write(',')
+            if total_args>0: 
+                self.write(',')
             self.visit(arg)
             total_args += 1
             
         if hasattr(node, 'keywords'):
             for kw in node.keywords:
-                if total_args>0: self.write(',')
+                if total_args>0: 
+                    self.write(',')
                 self.visit(kw)
                 total_args += 1
             
         if hasattr(node, 'starargs'):
             if node.starargs:
-                if total_args>0: self.write(',')
+                if total_args>0: 
+                    self.write(',')
                 self.write('*%s'%node.starargs)
                 total_args += 1
             
         if hasattr(node, 'kwargs'):
             if node.kwargs:
-                if total_args>0: self.write(',')
+                if total_args>0: 
+                    self.write(',')
                 self.write('**%s'%node.kwargs)
     
         self.write(')')
@@ -200,14 +205,16 @@ class ExprPrinter(ast.NodeVisitor):
     def visit_List(self, node):  
         self.write('[')
         for i,e in enumerate(node.elts):
-            if i>0: self.write(',')
+            if i>0: 
+                self.write(',')
             self.visit(e)
         self.write(']')
         
     def visit_Dict(self, node):  
         self.write('{')
         for i,tup in enumerate(zip(node.keys,node.values)):
-            if i>0: self.write(',')
+            if i>0: 
+                self.write(',')
             self.write("'%s':" % tup[0].s)
             self.visit(tup[1])
         self.write('}')
@@ -216,9 +223,11 @@ class ExprPrinter(ast.NodeVisitor):
         self.write('(')
         length = len(node.elts)
         for i,e in enumerate(node.elts):
-            if i>0: self.write(',')
+            if i>0: 
+                self.write(',')
             self.visit(e)
-        if length==1: self.write(',')
+        if length==1: 
+            self.write(',')
         self.write(')')
         
     def visit_USub(self, node): self.write('-')

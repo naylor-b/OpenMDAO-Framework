@@ -5,13 +5,13 @@ import ast
 from openmdao.main.numpy_fallback import array
 from openmdao.main.datatypes.array import Array
 from openmdao.main.expreval import ExprEvaluator, ConnectedExprEvaluator, ExprExaminer
-from openmdao.main.printexpr import ExprPrinter, transform_expression
-from openmdao.main.api import Assembly, Container, Component, set_as_top
+from openmdao.main.printexpr import ExprPrinter
+from openmdao.main.api import Assembly, Component, set_as_top
 from openmdao.main.datatypes.api import Float, List, Slot, Dict
 from openmdao.util.testutil import assert_rel_error
 
 #from numpy import sin,cos
-from math import log, sqrt, sin, cos
+from math import sqrt, sin, cos
 
 try:
     # as of python2.7, gamma is in the math module (even though docs say it's new as of 3.2)
@@ -157,18 +157,18 @@ class ExprEvalTestCase(unittest.TestCase):
         
     def test_calls(self):
         tests = [
-        ('a.b()', "scope.get('a.b',[(2,)])"),
-        ('a.b(5)', "scope.get('a.b',[(2,[5])])"),
-        ('a.b(5,9)', "scope.get('a.b',[(2,[5,9])])"),
-        ('a.b(5,z.y)', "scope.get('a.b',[(2,[5,scope.get('z.y')])])"),
-        ('a.b(5, z.y(2,3))', 
-         "scope.get('a.b',[(2,[5,scope.get('z.y',[(2,[2,3])])])])"),
-        ('a.b(5, z.y[3])', 
-         "scope.get('a.b',[(2,[5,scope.get('z.y',[(0,3)])])])"),
-         ('a.b(1,23,foo=9)', 
-          "scope.get('a.b',[(2,[1,23],[('foo',9)])])"),
-         ('a.b(1,23)[1]', "scope.get('a.b',[(2,[1,23]),(0,1)])"),
-         ('a.b(1).somefunct(2)[1]', "scope.get('a.b',[(2,[1]),(1,'somefunct'),(2,[2]),(0,1)])"),
+            ('a.b()', "scope.get('a.b',[(2,)])"),
+            ('a.b(5)', "scope.get('a.b',[(2,[5])])"),
+            ('a.b(5,9)', "scope.get('a.b',[(2,[5,9])])"),
+            ('a.b(5,z.y)', "scope.get('a.b',[(2,[5,scope.get('z.y')])])"),
+            ('a.b(5, z.y(2,3))', 
+             "scope.get('a.b',[(2,[5,scope.get('z.y',[(2,[2,3])])])])"),
+            ('a.b(5, z.y[3])', 
+             "scope.get('a.b',[(2,[5,scope.get('z.y',[(0,3)])])])"),
+             ('a.b(1,23,foo=9)', 
+              "scope.get('a.b',[(2,[1,23],[('foo',9)])])"),
+             ('a.b(1,23)[1]', "scope.get('a.b',[(2,[1,23]),(0,1)])"),
+             ('a.b(1).somefunct(2)[1]', "scope.get('a.b',[(2,[1]),(1,'somefunct'),(2,[2]),(0,1)])"),
         ]
 
         self._do_tests(tests, self.top)
@@ -397,7 +397,7 @@ class ExprEvalTestCase(unittest.TestCase):
         comp.x = math.pi/2.
         self.assertEqual(False, ExprEvaluator('sin(comp.x)<cos(comp.x)', self.top).evaluate())
         
-    def test_multi_object(self):
+    def test_multi_object_set(self):
         # verify that expressions with multiple objects raise a reasonable error message
         # when a set is attempted.
         try:

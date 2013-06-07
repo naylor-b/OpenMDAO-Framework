@@ -219,7 +219,7 @@ class DependencyGraph(object):
         containing each incoming link to the given component and the name
         of the connected component.
         """
-        return [(u, data['link']) \
+        return [(u, data['link']) 
                 for u, v, data in self._graph.in_edges(cname, data=True)]
     
     def out_links(self, cname):
@@ -227,7 +227,7 @@ class DependencyGraph(object):
         containing each outgoing link from the given component and the name
         of the connected component.
         """
-        return [(v, data['link']) \
+        return [(v, data['link']) 
                 for u, v, data in self._graph.edges(cname, data=True)]
 
     def var_edges(self, name=None):
@@ -263,7 +263,7 @@ class DependencyGraph(object):
         
         msg = "'%s' is already connected to source '%s'"
         if destpath in self._allsrcs:
-            raise AlreadyConnectedError(msg % \
+            raise AlreadyConnectedError(msg % 
                                         (destpath, self._allsrcs[destpath]))
         
         dpdot = destpath+'.'

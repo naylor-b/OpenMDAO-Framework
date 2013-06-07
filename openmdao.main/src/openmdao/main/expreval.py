@@ -85,13 +85,8 @@ class ExprTransformer(ast.NodeTransformer):
         if self.expreval.is_local(name):
             return node
         
-        #scope = self.expreval.scope
-        #if scope:
-        parts = name.split('.',1)
         names = ['scope']
         self.expreval.var_names.add(name)
-        #else:
-            #raise RuntimeError("expression has no scope")
 
         args = [ast.Str(s=name)]
         if self.rhs and len(self._stack) == 0:
@@ -223,36 +218,44 @@ class ExprTransformer(ast.NodeTransformer):
 
 class ExprExaminer(ast.NodeVisitor):
     """"Examines various properties of an expression for later analysis."""
+
     def __init__(self, node, evaluator=None):
         super(ExprExaminer, self).__init__()
         self.const = True
         self.simplevar = True  # if true, it's just a simple variable name (possibly with dots)
-        self.refs= set()  # variables and/or subscripted variables referenced in this expression
+        self.rhsrefs= set()  # variables and/or subscripted variables referenced in this expression
+        self.lhsref = None
         self.const_indices = True
         self.assignable = True
         self._evaluator = evaluator
-        
+        self._assigncol = -1
+
         self.visit(node)
         
         # get rid of any refs that are just substrings of real refs, e.g., if the real ref is 'x[3]',
         # then there will also be a 'fake' ref for 'x'
-        if len(self.refs) > 1:
+        if len(self.rhsrefs) > 1:
             ep = ExprPrinter() # first we have to convert the ast back into a string
             ep.visit(node)
             txt = ep.get_text()
             # now we loop through the refs from longest to shortest, removing each from
             # the expression string.  As we get to each ref, we search for it in what's left
             # of the expression string. If we find it, then it's a real ref.
-            for ref in sorted(self.refs, key=len, reverse=True):
+            for ref in sorted(self.rhsrefs, key=len, reverse=True):
                 if ref not in txt:
-                    self.refs.remove(ref)
+                    self.rhsrefs.remove(ref)
                 txt = txt.replace(ref, '')
+                
+        self.rhsrefs = list(self.rhsrefs)
 
-    def _maybe_add_ref(self, name):
+    def _maybe_add_ref(self, name, node):
         """Will add a ref if it's not a name from the locals dict."""
         if self._evaluator and self._evaluator.is_local(name):
             return
-        self.refs.add(name)
+        if node.col_offset > self._assigncol:
+            self.rhsrefs.add(name)
+        else:
+            self.lhsref = name
 
     def visit_Index(self, node):
         self.simplevar = self.const = False
@@ -262,6 +265,11 @@ class ExprExaminer(ast.NodeVisitor):
         self.visit(node.value)
 
     def visit_Assign(self, node):
+        mx = 0
+        for child in ast.walk(node.targets[-1]):
+            if hasattr(child, 'col_offset') and child.col_offset > mx:
+                mx = child.col_offset
+        self._assigncol = mx
         self.assignable = False
         self.const = False
         self.simplevar = False
@@ -288,14 +296,14 @@ class ExprExaminer(ast.NodeVisitor):
 
     def visit_Name(self, node):
         self.const = False
-        self._maybe_add_ref(node.id)
+        self._maybe_add_ref(node.id, node)
         super(ExprExaminer, self).generic_visit(node)
         
     def visit_Attribute(self, node):
         self.const = False
         long_name = _get_long_name(node)
         if long_name:
-            self._maybe_add_ref(long_name)
+            self._maybe_add_ref(long_name, node)
         else:
             self.simplevar = False
             super(ExprExaminer, self).generic_visit(node)
@@ -304,7 +312,7 @@ class ExprExaminer(ast.NodeVisitor):
         self.const = False
         p = ExprPrinter()
         p.visit(node)
-        self._maybe_add_ref(p.get_text())
+        self._maybe_add_ref(p.get_text(), node)
         super(ExprExaminer, self).generic_visit(node)
         
     def visit_Num(self, node):
@@ -519,6 +527,7 @@ class ExprEvaluator(object):
         using the eval() function.
         """
         global _expr_dict
+        _local_src_ = None
         scope = self._get_updated_scope(scope)
         try:
             if self._code is None:
@@ -534,12 +543,13 @@ class ExprEvaluator(object):
         if self._code is None:
             self._parse()
         if self._examiner is None:
-            self._examiner = ExprExaminer(ast.parse(self.text, 
-                                                    mode='eval'), self)
+            self._examiner = ExprExaminer(self._pre_parse(), self)
+        if self._examiner.lhsref is not None:
+            return self._examiner.rhsrefs + [self._examiner.lhsref]
         if copy:
-            return self._examiner.refs.copy()
+            return self._examiner.rhsrefs[:]
         else:
-            return self._examiner.refs
+            return self._examiner.rhsrefs
     
     def evaluate_gradient(self, stepsize=1.0e-6, wrt=None, scope=None):
         """Return a dict containing the gradient of the expression with respect to 
@@ -557,7 +567,7 @@ class ExprEvaluator(object):
         scope = self._get_updated_scope(scope)
         inputs = list(self.refs(copy=False))
 
-        if wrt==None:
+        if wrt is None:
             wrt = inputs
         elif isinstance(wrt, str):
             wrt = [wrt]
@@ -828,6 +838,25 @@ class ConnectedExprEvaluator(ExprEvaluator):
         if super(ConnectedExprEvaluator, self).refers_to(name):
             return True
         return name in self.refs(copy=False)
+
+
+class PseudoComponent(object):
+    """A fake Component that is constructed with inputs and outputs based on
+    an expression.
+    """
+    def __init__(self, expr):
+        if isinstance(expr, basestring):
+            pass
+        else:
+            pass
+        try:
+            lhs, rhs = expr.text.split("=")
+        except ValueError:
+            lhs = expr.text
+            rhs = None
+
+
+
 
 if __name__ == '__main__':
     import sys

@@ -1,7 +1,8 @@
 """ ExecComp is a simple component that lets you easily define mathematical
 expressions."""
 
-import re, time
+import re
+import time
 
 from openmdao.main.api import Component, ComponentWithDerivatives
 from openmdao.main.datatypes.api import Float
@@ -23,12 +24,12 @@ class ExecComp(Component):
     
     def __init__(self, exprs=(), sleep=0):
         super(ExecComp, self).__init__()
-        ins = set()
         outs = set()
         allvars = set()
         self.exprs = exprs
         self.codes = [compile(expr,'<string>','exec') for expr in exprs]
         self.sleep = sleep
+
         for expr in exprs:
             lhs,rhs = expr.split('=')
             lhs = lhs.strip()
@@ -36,7 +37,7 @@ class ExecComp(Component):
             outs.update(lhs)
             expreval = ExprEvaluator(expr, scope=self)
             allvars.update(expreval.get_referenced_varpaths(copy=False))
-        ins = allvars - outs
+        
         for var in allvars:
             if '.' not in var:  # if a varname has dots, it's outside of our scope,
                                 # so don't add a trait for it
@@ -85,7 +86,6 @@ class ExecCompWithDerivatives(ComponentWithDerivatives):
     def __init__(self, exprs=(), derivatives=(), sleep=0, dsleep=0):
         super(ExecCompWithDerivatives, self).__init__()
         
-        ins = set()
         outs = set()
         allvars = set()
         self.exprs = exprs
@@ -100,7 +100,6 @@ class ExecCompWithDerivatives(ComponentWithDerivatives):
             outs.update(lhs)
             expreval = ExprEvaluator(expr, scope=self)
             allvars.update(expreval.get_referenced_varpaths(copy=False))
-        ins = allvars - outs
         
         for var in allvars:
             if '.' not in var:  # if a varname has dots, it's outside of our scope,
