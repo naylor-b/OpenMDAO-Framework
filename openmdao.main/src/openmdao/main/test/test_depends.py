@@ -1,17 +1,14 @@
 # pylint: disable-msg=C0111,C0103
 
 import unittest
-import logging
 import math
-import nose
 
-from openmdao.main.api import Assembly, Component, Driver, set_as_top, Dataflow
-from openmdao.lib.datatypes.api import Float, Int, Array, List, Dict
+from openmdao.main.api import Assembly, Component, Driver, set_as_top
+from openmdao.lib.datatypes.api import Float, Array, List, Dict
 from openmdao.main.hasobjective import HasObjectives
 from openmdao.main.hasconstraints import HasConstraints
 from openmdao.main.hasparameters import HasParameters
 from openmdao.util.decorators import add_delegate
-from openmdao.test.execcomp import ExecComp
 from openmdao.util.testutil import assert_rel_error
 
 import random

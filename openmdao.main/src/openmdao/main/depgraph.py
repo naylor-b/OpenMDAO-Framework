@@ -5,7 +5,6 @@ import sys
 
 # pylint: disable-msg=E0611,F0401
 import networkx as nx
-from networkx.algorithms.components import strongly_connected_components
 
 from openmdao.main.expreval import ExprEvaluator
 from openmdao.main.printexpr import transform_expression

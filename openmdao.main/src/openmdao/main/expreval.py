@@ -6,12 +6,9 @@ __all__ = ["ExprEvaluator"]
 import weakref
 import math
 import ast
-import copy
-import re
 import __builtin__
 
 from openmdao.main.printexpr import _get_attr_node, _get_long_name, transform_expression, ExprPrinter
-from openmdao.util.nameutil import partition_names_by_comp
 from openmdao.main.index import INDEX, ATTR, CALL, SLICE
 
 from openmdao.main.sym import SymGrad, SymbolicDerivativeError
@@ -229,32 +226,35 @@ class ExprExaminer(ast.NodeVisitor):
         self.assignable = True
         self._evaluator = evaluator
         self._assigncol = -1
+        self._refadd = True  # if true, new refs can be added. Used to prevent multiple refs
+                             # from being created for each complex ref, e.g.  comp1.x[2] and
+                             # comp1.x
 
         self.visit(node)
         
-        # get rid of any refs that are just substrings of real refs, e.g., if the real ref is 'x[3]',
-        # then there will also be a 'fake' ref for 'x'
-        if len(self.rhsrefs) > 1:
-            ep = ExprPrinter() # first we have to convert the ast back into a string
-            ep.visit(node)
-            txt = ep.get_text()
-            # now we loop through the refs from longest to shortest, removing each from
-            # the expression string.  As we get to each ref, we search for it in what's left
-            # of the expression string. If we find it, then it's a real ref.
-            for ref in sorted(self.rhsrefs, key=len, reverse=True):
-                if ref not in txt:
-                    self.rhsrefs.remove(ref)
-                txt = txt.replace(ref, '')
+        ## get rid of any refs that are just substrings of real refs, e.g., if the real ref is 'x[3]',
+        ## then there will also be a 'fake' ref for 'x'
+        #if len(self.rhsrefs) > 1:
+            #ep = ExprPrinter() # first we have to convert the ast back into a string
+            #ep.visit(node)
+            #txt = ep.get_text()
+            ## now we loop through the refs from longest to shortest, removing each from
+            ## the expression string.  As we get to each ref, we search for it in what's left
+            ## of the expression string. If we find it, then it's a real ref.
+            #for ref in sorted(self.rhsrefs, key=len, reverse=True):
+                #if ref not in txt:
+                    #self.rhsrefs.remove(ref)
+                #txt = txt.replace(ref, '')
                 
         self.rhsrefs = list(self.rhsrefs)
 
     def _maybe_add_ref(self, name, node):
         """Will add a ref if it's not a name from the locals dict."""
-        if self._evaluator and self._evaluator.is_local(name):
+        if self._refadd is False or (self._evaluator and self._evaluator.is_local(name)):
             return
         if node.col_offset > self._assigncol:
             self.rhsrefs.add(name)
-        else:
+        elif self.lhsref is None:
             self.lhsref = name
 
     def visit_Index(self, node):
@@ -306,15 +306,27 @@ class ExprExaminer(ast.NodeVisitor):
             self._maybe_add_ref(long_name, node)
         else:
             self.simplevar = False
+            old = self._refadd
+            self._refadd = False
             super(ExprExaminer, self).generic_visit(node)
+            self._refadd = old
+            if old is True:
+                p = ExprPrinter()
+                p.visit(node)
+                self._maybe_add_ref(p.get_text(), node)
         
     def visit_Subscript(self, node):
         self.const = False
         p = ExprPrinter()
         p.visit(node)
         self._maybe_add_ref(p.get_text(), node)
-        super(ExprExaminer, self).generic_visit(node)
-        
+        old = self._refadd
+        self._refadd = False
+        try:
+            super(ExprExaminer, self).generic_visit(node)
+        finally:
+            self._refadd = old
+
     def visit_Num(self, node):
         self.simplevar = False
         if self.const:
@@ -400,6 +412,14 @@ class ExprEvaluator(object):
         self._examiner = self.cached_grad_eq = None
         self._text = value
 
+    def transformed_text(self):
+        root, code = self._parse_get()
+        if isinstance(root, ast.Module):
+            root = root.body[0]
+        p = ExprPrinter()
+        p.visit(root)
+        return p.get_text()
+        
     @property
     def scope(self):
         """The scoping object used to evaluate the expression."""
@@ -498,7 +518,7 @@ class ExprEvaluator(object):
         ast.fix_missing_locations(new_ast)
         mode = 'exec' if isinstance(new_ast, ast.Module) else 'eval'
         return (new_ast, compile(new_ast, '<string>', mode))
-        
+
     def _parse_set(self):
         root = ast.parse("%s=_local_setter_" % self.text, mode='exec')
         ## transform into a 'set' call to set the specified variable
@@ -550,7 +570,28 @@ class ExprEvaluator(object):
             return self._examiner.rhsrefs[:]
         else:
             return self._examiner.rhsrefs
-    
+
+    def lhsref(self):
+        """Returns the ref string for the left-hand-side if the current
+        expression is an assignment.  Otherwise returns None.
+        """
+        if self._code is None:
+            self._parse()
+        if self._examiner is None:
+            self._examiner = ExprExaminer(self._pre_parse(), self)
+        return self._examiner.lhsref
+
+    def rhsrefs(self):
+        """Returns the list of ref strings for the right-hand-side if the current
+        expression is an assignment.  Otherwise returns all refs in the
+        expression.
+        """
+        if self._code is None:
+            self._parse()
+        if self._examiner is None:
+            self._examiner = ExprExaminer(self._pre_parse(), self)
+        return self._examiner.rhsrefs[:]
+
     def evaluate_gradient(self, stepsize=1.0e-6, wrt=None, scope=None):
         """Return a dict containing the gradient of the expression with respect to 
         each of the referenced varpaths. The gradient is calculated by 1st order central
@@ -822,7 +863,7 @@ class ConnectedExprEvaluator(ExprEvaluator):
     def _parse(self):
         super(ConnectedExprEvaluator, self)._parse()
         self._examiner = ExprExaminer(ast.parse(self.text, mode='eval'), self)
-        if len(self._examiner.refs) != 1:
+        if len(self._examiner.rhsrefs) != 1:
             raise RuntimeError("bad connected expression '%s' must reference exactly one variable" %
                                self.text)
         if self._is_dest:

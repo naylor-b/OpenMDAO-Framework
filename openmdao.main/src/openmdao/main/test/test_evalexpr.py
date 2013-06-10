@@ -13,16 +13,16 @@ from openmdao.util.testutil import assert_rel_error
 #from numpy import sin,cos
 from math import sqrt, sin, cos
 
-try:
-    # as of python2.7, gamma is in the math module (even though docs say it's new as of 3.2)
-    from math import gamma
-except ImportError as err:
-    import logging
-    logging.warn("In %s: %r" % (__file__, err))
-    try:
-        from scipy.special import gamma
-    except ImportError as err:
-        logging.warn("In %s: %r" % (__file__, err))
+# try:
+#     # as of python2.7, gamma is in the math module (even though docs say it's new as of 3.2)
+#     from math import gamma
+# except ImportError as err:
+#     import logging
+#     logging.warn("In %s: %r" % (__file__, err))
+#     try:
+#         from scipy.special import gamma
+#     except ImportError as err:
+#         logging.warn("In %s: %r" % (__file__, err))
 
 class A(Component):
     f = Float(iotype='in')
@@ -65,7 +65,8 @@ class Simple(Component):
     b = Float(iotype='in')
     c = Float(iotype='out')
     d = Float(iotype='out')
-    x_array = Array([0,0,0], iotype='in')
+    x_array = Array([0.,0.,0.], iotype='in')
+
     def __init__(self):
         super(Simple, self).__init__()
         self.a = 4.
@@ -239,7 +240,6 @@ class ExprEvalTestCase(unittest.TestCase):
         
         ex = ExprEvaluator("comp.get_attr('get_cont')(1).a1d", self.top)
         self.assertEqual(list(ex.evaluate()), [4,4,4,123,4])
-        
         
     def test_reparse_on_scope_change(self):
         self.top.comp.x = 99.5
@@ -537,6 +537,26 @@ class ExprEvalTestCase(unittest.TestCase):
         exp = ExprEvaluator('parent.var+abs(x)*parent.a.a1d[2]', self.top.comp)
         xformed = exp.scope_transform(self.top.comp, self.top)
         self.assertEqual(xformed, 'var+abs(comp.x)*a.a1d[2]')
+
+    def test_refs(self):
+        top = set_as_top(Assembly())
+        top.add('comp1', Simple())
+        top.add('comp2', Simple())
+        self.assertEqual(top.comp2.a, 4.)
+        self.assertEqual(top.comp2.b, 5.)
+        self.assertEqual(top.comp1.c, 7.)
+        self.assertEqual(top.comp1.d, 1.5)
+        exp = ExprEvaluator('comp2.a=comp1.c')
+        exp.evaluate(top)
+        self.assertEqual(top.comp2.a, 7.)
+        self.assertEqual(exp.rhsrefs(), ['comp1.c'])
+        self.assertEqual(exp.lhsref(), 'comp2.a')
+        exp = ExprEvaluator('comp2.x_array[1]=comp1.c+comp1.d')
+        exp.evaluate(top)
+        self.assertEqual(set(exp.rhsrefs()), set(['comp1.c', 'comp1.d']))
+        self.assertEqual(exp.lhsref(), 'comp2.x_array[1]')
+        self.assertEqual(top.comp2.x_array[1], 8.5)
+
         
     def test_connected_expr(self):
         try:
@@ -584,7 +604,7 @@ class ExprExaminerTestCase(unittest.TestCase):
         self.assertEqual(ee.const, const)
         if refs is None:
             refs = set()
-        self.assertEqual(refs, ee.refs)
+        self.assertEqual(refs, set(ee.rhsrefs))
         return ee
         
     def test_exprs(self):

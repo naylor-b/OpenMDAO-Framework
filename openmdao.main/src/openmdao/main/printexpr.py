@@ -301,7 +301,10 @@ def transform_expression(expr, mapping):
     the value of the mapping dict.  Note that this transforms only 'complete'
     names (dotted or not), not sub-names within a larger dotted name.
     """
-    new_ast = ExprNameTransformer(mapping).visit(ast.parse(expr, mode='eval'))
+    root = ast.parse(expr, mode='exec')
+    if isinstance(root, ast.Module):
+        root = root.body[0]
+    new_ast = ExprNameTransformer(mapping).visit(root)
     ast.fix_missing_locations(new_ast)
     
     ep = ExprPrinter()
