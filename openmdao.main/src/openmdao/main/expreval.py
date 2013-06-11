@@ -870,9 +870,6 @@ class ConnectedExprEvaluator(ExprEvaluator):
     def _parse(self):
         super(ConnectedExprEvaluator, self)._parse()
         self._examiner = ExprExaminer(ast.parse(self.text, mode='eval'), self)
-        if len(self._examiner.rhsrefs) != 1:
-            raise RuntimeError("bad connected expression '%s' must reference exactly one variable" %
-                               self.text)
         if self._is_dest:
             if not self._examiner.const_indices:
                 raise RuntimeError("bad destination expression '%s': only constant indices are allowed for arrays and slices" %
@@ -880,6 +877,9 @@ class ConnectedExprEvaluator(ExprEvaluator):
             if not self._examiner.assignable:
                 raise RuntimeError("bad destination expression '%s': not assignable" %
                                    self.text)
+        if len(self._examiner.rhsrefs) != 1:
+            raise RuntimeError("bad connected expression '%s' must reference exactly one variable" %
+                               self.text)
     
     def refers_to(self, name):
         """Returns True if this expression refers to the given variable or component."""

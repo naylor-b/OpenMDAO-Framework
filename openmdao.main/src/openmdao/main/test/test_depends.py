@@ -812,7 +812,7 @@ class ExprDependsTestCase(unittest.TestCase):
         try:
             top.sub.connect('comp1.c', 'comp4.a+comp4.b')
         except Exception as err:
-            self.assertEqual(str(err), "sub: Can't connect 'comp1.c' to 'comp4.a+comp4.b': bad connected expression 'comp4.a+comp4.b' must reference exactly one variable")
+            self.assertEqual(str(err), "sub: Can't connect 'comp1.c' to 'comp4.a+comp4.b': bad destination expression 'comp4.a+comp4.b': not assignable")
         else:
             self.fail("Exception expected")
             

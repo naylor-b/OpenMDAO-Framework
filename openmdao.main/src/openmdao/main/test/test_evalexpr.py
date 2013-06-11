@@ -574,7 +574,7 @@ class ExprEvalTestCase(unittest.TestCase):
         else:
             self.fail("Exception expected")
             
-        ConnectedExprEvaluator("var1(2.3)", self.top)._parse()
+        ConnectedExprEvaluator("funct(comp1.x, 2.3)", self.top)._parse()
         try:
             ConnectedExprEvaluator("var1(2.3)", self.top, is_dest=True)._parse()
         except Exception as err:
@@ -623,8 +623,8 @@ class ExprExaminerTestCase(unittest.TestCase):
         self._examine("x[1:4:y]", simplevar=False, const_indices=False, refs=set(['x[1:4:y]']))
         self._examine("x+y", simplevar=False, assignable=False, refs=set(['x','y']))
         self._examine("x*y", simplevar=False, assignable=False, refs=set(['x','y']))
-        self._examine("x()", simplevar=False, assignable=False, refs=set(['x']))
-        self._examine("x(7)", simplevar=False, assignable=False, refs=set(['x']))
+        self._examine("x()", simplevar=False, assignable=False, refs=set([]))
+        self._examine("x(7)", simplevar=False, assignable=False, refs=set([]))
         self._examine("x==6", simplevar=False, assignable=False, refs=set(['x']))
         
 if __name__ == "__main__":
