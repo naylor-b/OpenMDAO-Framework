@@ -89,59 +89,81 @@ class PassthroughProperty(Variable):
 class ExprMapper(object):
     """A mapping between source expressions and destination expressions"""
     def __init__(self):
-        self._exprgraph = nx.DiGraph()  # graph of source expressions to destination expressions
+        self.exprs = {}  # dict of expr strings to ExprEvalutors
+        self.dests = {}  # map of src expr string to list of dest expr strings
+        self.srcs = {}   # map of dest expr string to src expr string
 
     def get_output_exprs(self):
         """Return all destination expressions at the output boundary"""
-        exprs = []
-        graph = self._exprgraph
-        for node, data in graph.nodes(data=True):
-            if graph.in_degree(node) > 0:
-                expr = data['expr']
-                if len(expr.get_referenced_compnames()) == 0:
-                    exprs.append(expr)
-        return exprs
+        return [e for txt,e in self.exprs.items() if txt in self.srcs and not e.get_referenced_compnames()]
 
     def get_expr(self, text):
-        node = self._exprgraph.node.get(text)
-        if node:
-            return node['expr']
-        return None
+        return self.exprs.get(text)
 
     def list_connections(self, show_passthrough=True):
-        """Return a list of tuples of the form (outvarname, invarname).
+        """Return a list of tuples of the form (outexpr, inexpr).
         """
-        excludes = set([name for name, data in self._exprgraph.nodes(data=True)
-                        if data['expr'].refs_parent()])
-        if show_passthrough:
-            return [(u, v) for u, v in self._exprgraph.edges() if not (u in excludes or v in excludes)]
-        else:
-            return [(u, v) for u, v in self._exprgraph.edges()
-                       if '.' in u and '.' in v and not (u in excludes or v in excludes)]
+        conn = []
+        excludes = set([name for name, expr in self.exprs.items() if expr.refs_parent()])
+        for src, dlist in self.dests.items():
+            if src in excludes or not (show_passthrough or '.' in src):
+                continue
+            for dest in dlist:
+                if dest in excludes:
+                    continue
+                if show_passthrough or '.' in dest:
+                    conn.append((src, dest))
+        return conn
 
     def get_source(self, dest_expr):
         """Returns the text of the source expression that is connected to the given
         destination expression.
         """
-        dct = self._exprgraph.pred.get(dest_expr)
-        if dct:
-            return dct.keys()[0]
-        else:
-            return None
+        return self.srcs.get(dest_expr)
 
     def get_dests(self, src_expr):
-        """Returns the list of destination expressions that are connected to the given
+        """Returns the list of destination expressions (strings) that are connected to the given
         source expression.
         """
-        graph = self._exprgraph
-        return [graph.node(name)['expr'] for name in self._exprgraph.succ[src_expr].keys()]
+        return self.dests.get(src_expr, [])
 
-    def remove(self, compname):
-        """Remove any connections referring to the given component"""
-        refs = self.find_referring_exprs(compname)
-        if refs:
-            self._exprgraph.remove_nodes_from(refs)
-            self._remove_disconnected_exprs()
+    def remove(self, name):
+        """Remove any connections referring to the given component or variable"""
+
+        to_remove = []
+        for expr in self.find_referring_exprs(name):
+            to_remove.extend(self._remove_expr(expr))
+        return to_remove
+
+    def _remove_expr(self, txt):
+        conns = set()
+        del self.exprs[txt]
+
+        if txt in self.srcs:
+            conns.add((self.srcs[txt], txt))
+            del self.srcs[txt]
+
+        srcs_to_remove = []
+        for src, dests in self.dests.items():
+            try:
+                dests.remove(txt)
+            except ValueError:
+                pass
+            else: # found one
+                conns.add((src, txt))
+            if len(dests) == 0:
+                srcs_to_remove.append(src)
+
+        for rem in srcs_to_remove:
+            del self.dests[rem]
+            
+        if txt in self.dests:
+            for d in self.dests[txt]:
+                conns.add((txt, d))
+                del self.srcs[d]
+            del self.dests[txt]
+            
+        return list(conns)
 
     def connect(self, srcexpr, destexpr, scope):
         src = srcexpr.text
@@ -178,49 +200,33 @@ class ExprMapper(object):
                         # data actually gets passed via the connection.
                         pass
 
-        if src not in self._exprgraph:
-            self._exprgraph.add_node(src, expr=srcexpr)
-        if dest not in self._exprgraph:
-            self._exprgraph.add_node(dest, expr=destexpr)
-
-        self._exprgraph.add_edge(src, dest)
+        self.exprs[src] = srcexpr
+        self.exprs[dest] = destexpr
+        self.dests.setdefault(src, []).append(dest)
+        self.srcs[dest] = src
 
     def find_referring_exprs(self, name):
-        """Returns a list of expression strings that reference the given name, which
+        """Returns a set of expression strings that reference the given name, which
         can refer to either a variable or a component.
         """
-        return [node for node, data in self._exprgraph.nodes(data=True) if data['expr'].refers_to(name)]
-
-    def _remove_disconnected_exprs(self):
-        # remove all expressions that are no longer connected to anything
-        to_remove = []
-        graph = self._exprgraph
-        for expr in graph.nodes():
-            if graph.in_degree(expr) == 0 and graph.out_degree(expr) == 0:
-                to_remove.append(expr)
-        for expr in to_remove:
-            graph.remove_node(expr)
+        return set([node.text for node in self.exprs.values() if node.refers_to(name)])
 
     def disconnect(self, srcpath, destpath=None):
         """Disconnect the given expressions/variables/components."""
-        graph = self._exprgraph
 
         if destpath is None:
-            if srcpath in graph:
-                graph.remove_node(srcpath)
+            if srcpath in self.exprs:
+                return self._remove_expr(srcpath)
             else:
-                graph.remove_nodes_from(self.find_referring_exprs(srcpath))
-            self._remove_disconnected_exprs()
-            return
+                return self.remove(srcpath)
 
-        if srcpath in graph and destpath in graph:
-            graph.remove_edge(srcpath, destpath)
-            self._remove_disconnected_exprs()
+        if srcpath in self.exprs and destpath in self.exprs:
+            return self._remove_expr(destpath) # only remove dest. src will be removed if it has no more dests
         else:  # assume they're disconnecting two variables, so find connected exprs that refer to them
-            src_exprs = set(self.find_referring_exprs(srcpath))
-            dest_exprs = set(self.find_referring_exprs(destpath))
-            graph.remove_edges_from([(src, dest) for src, dest in graph.edges()
-                                           if src in src_exprs and dest in dest_exprs])
+            conns = self.remove(destpath)
+            for expr in self.find_referring_exprs(srcpath):
+                conns.extend(self._remove_expr(expr))
+            return conns
 
     def check_connect(self, src, dest, scope):
         """Check validity of connecting a source expression to a destination expression."""
@@ -238,6 +244,7 @@ class ExprMapper(object):
 
         if destcomps and destcomps.pop() in srccomps:
             raise RuntimeError("'%s' and '%s' refer to the same component." % (src, dest))
+
         return srcexpr, destexpr
 
 
@@ -306,7 +313,7 @@ class Assembly(Component):
         """Returns a list of connections where the given name is referred
         to either in the source or the destination.
         """
-        exprset = set(self._exprmapper.find_referring_exprs(name))
+        exprset = self._exprmapper.find_referring_exprs(name)
         return [(u, v) for u, v in self.list_connections(show_passthrough=True)
                                                 if u in exprset or v in exprset]
 
@@ -658,20 +665,12 @@ class Assembly(Component):
         if varpath2 is None:
             if self.parent and '.' not in varpath:  # boundary var. make sure it's disconnected in parent
                 self.parent.disconnect('.'.join([self.name, varpath]))
-            graph = self._exprmapper._exprgraph
-            to_remove = set()
-            for expr in self._exprmapper.find_referring_exprs(varpath):
-                for u, v in graph.edges(expr):
-                    to_remove.add((u, v))
-                for u, v in graph.in_edges(expr):
-                    to_remove.add((u, v))
+            to_remove = set(self._exprmapper.disconnect(varpath, varpath2))
         else:
             to_remove = [(varpath, varpath2)]
 
         for u, v in to_remove:
             super(Assembly, self).disconnect(u, v)
-
-        self._exprmapper.disconnect(varpath, varpath2)
 
     def config_changed(self, update_parent=True):
         """Call this whenever the configuration of this Component changes,
@@ -731,18 +730,19 @@ class Assembly(Component):
         """
         expr_info = []
         invalids = []
+        exprmapper = self._exprmapper
 
         if compname is not None:
-            pred = self._exprmapper._exprgraph.pred
+            #pred = self._exprmapper._exprgraph.pred
             if exprs:
                 ex = ['.'.join([compname, n]) for n in exprs]
                 exprs = []
                 for e in ex:
-                    exprs.extend([expr for expr in self._exprmapper.find_referring_exprs(e)
-                                  if expr in pred])
+                    exprs.extend([expr for expr in exprmapper.find_referring_exprs(e)
+                                  if expr in exprmapper.srcs])
             else:
                 exprs = [expr for expr in self._exprmapper.find_referring_exprs(compname)
-                             if expr in pred]
+                             if expr in exprmapper.srcs]
         for expr in exprs:
             srctxt = self._exprmapper.get_source(expr)
             if srctxt:
