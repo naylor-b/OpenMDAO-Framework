@@ -1,5 +1,4 @@
 import unittest
-import StringIO
 
 from openmdao.main.assembly import ExprMapper, Assembly, set_as_top
 from openmdao.main.component import Component
@@ -30,7 +29,7 @@ class Simple(Component):
 def make_graph(nodes=(), connections=()):
     scope = set_as_top(Assembly())
     sub = scope.add('sub',Assembly())
-    dep = ExprMapper(sub)
+    dep = ExprMapper()
     for name in nodes:
         if name.startswith('parent.'):
             scope.add(name.split('.',1)[1], Simple())

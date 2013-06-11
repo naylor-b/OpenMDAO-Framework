@@ -88,9 +88,8 @@ class PassthroughProperty(Variable):
 
 class ExprMapper(object):
     """A mapping between source expressions and destination expressions"""
-    def __init__(self, scope):
+    def __init__(self):
         self._exprgraph = nx.DiGraph()  # graph of source expressions to destination expressions
-        self._scope = scope
 
     def get_output_exprs(self):
         """Return all destination expressions at the output boundary"""
@@ -170,9 +169,8 @@ class ExprMapper(object):
                     ttype = desttrait.trait_type
                     if not ttype:
                         ttype = desttrait
-                    srcval = srcexpr.evaluate()
                     if ttype.validate:
-                        ttype.validate(destcomp, destvarname, srcval)
+                        ttype.validate(destcomp, destvarname, srcexpr.evaluate())
                     else:
                         # no validate function on destination trait. Most likely
                         # it's a property trait.  No way to validate without
@@ -267,7 +265,7 @@ class Assembly(Component):
 
         super(Assembly, self).__init__(directory=directory)
 
-        self._exprmapper = ExprMapper(self)
+        self._exprmapper = ExprMapper()
 
         # default Driver executes its workflow once
         self.add('driver', Run_Once())

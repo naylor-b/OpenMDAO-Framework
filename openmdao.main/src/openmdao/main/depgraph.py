@@ -193,7 +193,6 @@ class DependencyGraph(object):
         """Returns a list of autopassthrough connections as (src, dest)
         tuples."""
         conns = []
-        #namesub = re.compile('(([_a-zA-Z][_a-zA-Z0-9]*)+(\.[_a-zA-Z][_a-zA-Z0-9]*)*)')
         inlink = self.get_link('@xin', '@bin')
         if inlink:
             conns.extend([(v, u) 

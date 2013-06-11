@@ -315,6 +315,14 @@ class ExprExaminer(ast.NodeVisitor):
                 p.visit(node)
                 self._maybe_add_ref(p.get_text(), node)
         
+    def visit_Call(self, node):
+        fname = _get_long_name(node.func)
+        self.assignable = self.simplevar = False
+        super(ExprExaminer, self).generic_visit(node)
+        # we don't want function names in the ref list
+        if fname in self.rhsrefs:
+            self.rhsrefs.remove(fname)
+
     def visit_Subscript(self, node):
         self.const = False
         p = ExprPrinter()
@@ -345,7 +353,6 @@ class ExprExaminer(ast.NodeVisitor):
     visit_Expr       = _ignore
     visit_Expression = _ignore
 
-    visit_Call       = _no_assign
     visit_USub       = _no_assign
     visit_UAdd       = _no_assign
     visit_And        = _no_assign
@@ -879,24 +886,6 @@ class ConnectedExprEvaluator(ExprEvaluator):
         if super(ConnectedExprEvaluator, self).refers_to(name):
             return True
         return name in self.refs(copy=False)
-
-
-class PseudoComponent(object):
-    """A fake Component that is constructed with inputs and outputs based on
-    an expression.
-    """
-    def __init__(self, expr):
-        if isinstance(expr, basestring):
-            pass
-        else:
-            pass
-        try:
-            lhs, rhs = expr.text.split("=")
-        except ValueError:
-            lhs = expr.text
-            rhs = None
-
-
 
 
 if __name__ == '__main__':

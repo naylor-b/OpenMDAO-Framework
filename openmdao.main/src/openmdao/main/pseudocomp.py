@@ -1,6 +1,9 @@
 
+import threading
+
 from openmdao.main.expreval import ExprEvaluator
 from openmdao.main.printexpr import transform_expression
+
 
 class PseudoComponent(object):
     """A 'fake' component that is constructed from an ExprEvaluator.
@@ -8,7 +11,14 @@ class PseudoComponent(object):
     along with 'real' components.
     """
 
+    _lock = threading.RLock()
+    _count = 0
+
     def __init__(self, expr, scope):
+        with self._lock:
+            self.name = '#%d' % self._count
+            self._count += 1
+
         self._mapping = {}
 
         if isinstance(expr, basestring):
@@ -16,15 +26,15 @@ class PseudoComponent(object):
         else:
             expr.scope = scope
 
-        self._rhsrefs = expr.rhsrefs()
-        self._lhsref = expr.lhsref()
+        self._inputrefs = expr.rhsrefs()
+        self._outputref = expr.lhsref()
 
-        for i,ref in enumerate(self._rhsrefs):
+        for i,ref in enumerate(self._inputrefs):
             in_name = 'in%d' % i
             self._mapins[ref] = in_name
             setattr(self, in_name, None)
 
-        if self._lhsref: 
+        if self._outputref: 
             setattr(self, 'out1', None)
 
         xformed = transform_expression(expr.text, self._mapping)
@@ -36,7 +46,11 @@ class PseudoComponent(object):
         the appropriate nodes in the dependency graph.
         """
         
-        pass
+        for ref in self._inputrefs:
+            invar = self._mapping[ref]
+
+    def invalidate_deps(varnames, force=False):
+        return None
 
     def run(self):
         self.expr.evaluate(self)
