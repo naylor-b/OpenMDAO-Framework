@@ -282,7 +282,7 @@ class DependencyGraph(object):
         in_set = set(self.var_in_edges(comps))
         return in_set.intersection(self.var_edges(comps))
         
-    def connect(self, srcpath, destpath):
+    def connect(self, srcpath, destpath, scope):
         """Add an edge to our Component graph from 
         *srccompname* to *destcompname*. 
         """

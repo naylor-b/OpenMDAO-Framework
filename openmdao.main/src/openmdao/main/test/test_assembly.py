@@ -385,7 +385,7 @@ class AssemblyTestCase(unittest.TestCase):
         try:
             self.asm.create_passthrough('comp2.r')
         except RuntimeError, err:
-            self.assertEqual(str(err), ": Can't connect 'r' to 'comp2.r': : 'comp2.r' is already connected to source 'comp1.rout'")
+            self.assertEqual(str(err), ": Can't connect 'r' to 'comp2.r': 'comp2.r' is already connected to source 'comp1.rout'")
         else:
             self.fail('RuntimeError expected')
         self.asm.set('comp1.s', 'some new string')
@@ -574,7 +574,7 @@ class AssemblyTestCase(unittest.TestCase):
         try:
             asm.nested.connect('comp2.d', 'c')
         except RuntimeError, err:
-            self.assertEqual(str(err), "nested: Can't connect 'comp2.d' to 'c': nested: 'c' is already connected to source 'comp1.c'")
+            self.assertEqual(str(err), "nested: Can't connect 'comp2.d' to 'c': 'c' is already connected to source 'comp1.c'")
         else:
             self.fail('RuntimeError expected')
 
