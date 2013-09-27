@@ -222,6 +222,15 @@ class Testcase_geom_deriv(unittest.TestCase):
         self.assertTrue(hasattr(top.geo, 'apply_derivT'))
         self.assertTrue(hasattr(top.geo, 'provideJ'))
         
+        top.geo.remove('parametric_geometry')
+        
+        # Function not there after we empty the slot
+        self.assertTrue(not hasattr(top.geo, 'linearize'))
+        self.assertTrue(not hasattr(top.geo, 'apply_deriv'))
+        self.assertTrue(not hasattr(top.geo, 'apply_derivT'))
+        self.assertTrue(not hasattr(top.geo, 'provideJ'))
+        
+        
         
 if __name__ == '__main__':
     import nose

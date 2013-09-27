@@ -99,10 +99,9 @@ class GeomComponent(Component):
         """Called whenever the parametric geometry is set.
         """
         self._update_iovar_set()
-
+        self._update_deriv_functs(new)
+        
         if new is not None:
-            self._update_deriv_functs(new)
-
             if isinstance(new, Container):
                 new.parent = self
                 new.name = 'parametric_geometry'
@@ -287,7 +286,7 @@ class GeomComponent(Component):
         if geom is None: # remove derivative functions
             for funct in functs:
                 if hasattr(self, funct):
-                    del self.funct
+                    delattr(self, funct)
         else:
             for funct in functs:
                 if hasattr(geom, funct):
