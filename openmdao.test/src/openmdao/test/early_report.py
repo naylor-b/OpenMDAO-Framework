@@ -13,6 +13,7 @@ class TestInfo(object):
             self.name = test.id()
         self.status = None
         self.elapsed = 0.
+        self.traceback = ''
 
     def end(self):
         self.elapsed = time.time() - self.start
