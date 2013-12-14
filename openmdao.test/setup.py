@@ -50,12 +50,14 @@ setup(name='openmdao.test',
           'openmdao.test.execcomp.ExecComp = openmdao.test.execcomp:ExecComp'
           ],
       "console_scripts": [
-          'openmdao_test = openmdao.test.testing:run_openmdao_suite_deprecated'
+          'openmdao_test = openmdao.test.testing:run_openmdao_suite_deprecated',
+          'testdb = openmdao.test.nose_db:testdb'
           ],
       "nose.plugins.0.10": [
           'nosetimerplugin = openmdao.test.nosetimer:TestTimer',
           'nosesummaryplugin = openmdao.test.testing:TestFailureSummary',
-          'noseearlyplugin = openmdao.test.early_report:EarlyTestInfo'
+          'noseearlyplugin = openmdao.test.early_report:EarlyTestInfo',
+          'nosedbplugin = openmdao.test.nose_db:TestDB'
           ],
       },
       )

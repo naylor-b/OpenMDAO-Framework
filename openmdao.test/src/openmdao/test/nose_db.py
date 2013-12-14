@@ -4,9 +4,12 @@ import time
 from datetime import datetime
 import traceback
 import sqlite3
+from argparse import ArgumentParser
 
 from nose.plugins import Plugin
 from nose import SkipTest, main
+
+__version__ = 0.8
 
 class DBWrapper(object):
     def __init__(self, path, new=False):
@@ -52,6 +55,21 @@ class DBWrapper(object):
     def commit(self):
         self._connection.commit()
 
+    def set(self, table, where=(), **kwargs):
+        cur = self._connection.cursor()
+        sql = ['update %s set' % table]
+        sql2 = []
+        for name, val in kwargs.items():
+            sql2.append('%s=%s' % (name,val))
+        sql.append(','.join(sql2))
+        if where:
+            sql.append('where')
+        for w in where:
+            sql.append(w)
+        print ' '.join(sql)
+        cur.execute(' '.join(sql))
+        return cur
+
     def insert(self, table, **kwargs):
         cur = self._connection.cursor()
         sql = 'insert into %s%s values (%s)' % (table, 
@@ -92,16 +110,6 @@ class TestDB(Plugin):
     score = 1001 # need high score to get called before ErroClassPlugin,
                  # otherwise we lose Skips
 
-    def record(self, testinfo):
-        """Record the given test."""
-        self.db.insert("tests",
-                        elapsed_time=testinfo.elapsed,
-                        run_id=self.run_id,
-                        traceback=testinfo.traceback,
-                        status=testinfo.status)
-
-        self.db.commit()
-    
     def options(self, parser, env):
         """Sets additional command line options."""
         parser.add_option("--db", action="store", type="string",
@@ -129,6 +137,15 @@ class TestDB(Plugin):
     def formatErr(self, err):
         exctype, value, tb = err
         return ''.join(traceback.format_exception(exctype, value, tb))
+    
+    def record(self, testinfo):
+        """Record the given test."""
+        self.db.insert("tests",
+                        elapsed_time=testinfo.elapsed,
+                        run_id=self.run_id,
+                        traceback=testinfo.traceback,
+                        status=testinfo.status)
+        self.db.commit()
     
     def _end_test(self, testinfo):
         testinfo.end()
@@ -168,12 +185,13 @@ class TestDB(Plugin):
         self.run_id = cursor.lastrowid
 
     def finalize(self, result):
-        self.db.insert('testruns', 
-                       passes=self._passes,
-                       fails=self._fails,
-                       errors=self._errors,
-                       skips=self._skips,
-                       elapsed_time=0.)
+        self.db.set('testruns',
+                    where=['id=%d' % self.run_id],
+                    passes=self._passes,
+                    fails=self._fails,
+                    errors=self._errors,
+                    skips=self._skips,
+                    elapsed_time=0.)
         self.db.close()
     
     def beforeTest(self, test):
@@ -181,6 +199,105 @@ class TestDB(Plugin):
         
     def stopTest(self, test):
         pass
+
+
+def _get_testdb_parser():
+    """Sets up the plugin arg parser and all of its subcommand parsers."""
+
+    top_parser = ArgumentParser()
+    top_parser.add_argument('-v', '--version', action='version',
+                            version='testdb %s' % __version__)
+
+    subparsers = top_parser.add_subparsers(title='commands')
+
+    parser = subparsers.add_parser('summary',
+                                   help='list summary info for test runs')
+    parser.add_argument('-l', '--latest', action='store_true', dest='latest',
+                        help='Get summary for latest test run')
+    parser.add_argument('--db', action='store', dest='db', 
+                        metavar='DB', default='testing.db',
+                        help='specify the test database file')
+    parser.add_argument('--start', action='store', dest='start', 
+                        metavar='START', 
+                        help='show testrun summaries after this date')
+    parser.add_argument('--end', action='store', dest='end', 
+                        metavar='END', 
+                        help='show testrun summaries before this date')
+    parser.add_argument('--all', action='store_true', dest='all',
+                        help='list summary info for all test runs')
+    parser.set_defaults(func=summary)
+
+    parser = subparsers.add_parser('tests',
+                                   help='list info for individual tests')
+    parser.add_argument('--db', action='store', dest='db', 
+                        metavar='DB', default='testing.db',
+                        help='specify the test database file')
+    parser.add_argument('--start', action='store', dest='start', 
+                        metavar='START', 
+                        help='show tests after this date')
+    parser.add_argument('--end', action='store', dest='end', 
+                        metavar='END', 
+                        help='show tests before this date')
+    parser.add_argument('--all', action='store_true', dest='all',
+                        help='list info for all tests')
+    parser.set_defaults(func=tests)
+
+    parser = subparsers.add_parser('dump', 
+                                    help='dump all tables in the test db')
+    parser.add_argument("--db", action="store", 
+                        dest='db', default='testing.db',
+                        help="test database file")
+    parser.set_defaults(func=dump)
+
+
+    return top_parser
+
+
+def _display(cursor):
+    for line in cursor:
+        print line
+
+def dump(parser, options, args):
+    conn = sqlite3.connect(options.db)
+
+    cmd = "SELECT name from sqlite_master WHERE type='table' ORDER BY name;"
+    cur = conn.cursor()
+    cur.execute(cmd)
+    
+    for n in cur:
+        print '\nTable %s' % n[0]
+        cur2 = conn.cursor()
+        cur2.execute("SELECT * from %s;" % n[0])
+        for result in cur2:
+            for r in result:
+                if isinstance(r, basestring):
+                    print r[0:50],', ',
+                else:
+                    print r,', ',
+            print ''
+
+def tests(parser, options, args):
+    pass
+
+def summary(parser, options, args):
+    if options.all:
+        query = 'SELECT * from testruns'
+    elif options.start or options.end:
+        pass
+    elif options.latest:
+        query = 'SELECT * from testruns ORDER BY id DESC LIMIT 1'
+
+    db = DBWrapper(options.db)
+
+    for line in db.query(query):
+        print line
+
+def testdb():
+    """A command line interface for querying a test database."""
+    parser = _get_testdb_parser()
+    options, args = parser.parse_known_args()
+
+    sys.exit(options.func(parser, options, args))
 
 
 if __name__ == '__main__':
