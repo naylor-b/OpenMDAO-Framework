@@ -207,6 +207,9 @@ def _get_testdb_parser():
     top_parser = ArgumentParser()
     top_parser.add_argument('-v', '--version', action='version',
                             version='testdb %s' % __version__)
+    top_parser.add_argument('--query', action='store', dest='query', 
+                            metavar='QUERY', 
+                            help='query to run on the test database')
 
     subparsers = top_parser.add_subparsers(title='commands')
 
@@ -249,13 +252,39 @@ def _get_testdb_parser():
                         help="test database file")
     parser.set_defaults(func=dump)
 
+    parser = subparsers.add_parser('query', 
+                                    help='query the test db')
+    parser.add_argument("--db", action="store", 
+                        dest='db', default='testing.db',
+                        help="test database file")
+    parser.set_defaults(func=query)
 
     return top_parser
 
 
-def _display(cursor):
-    for line in cursor:
-        print line
+def _display(options, query, stream=sys.stdout):
+    db = DBWrapper(options.db)
+    for line in db.query(query):
+        stream.write("%s\n" % line)
+
+def _get_last_testrun(options):
+    db = DBWrapper(options.db)
+    query = 'SELECT id from testruns ORDER BY id DESC LIMIT 1'
+    for line in db.query(query):
+        return int(line[0])
+
+def tests(parser, options, args):
+    pass
+
+def summary(parser, options, args):
+    if options.all:
+        query = 'SELECT * from testruns'
+    elif options.start or options.end:
+        pass
+    elif options.latest:
+        query = 'SELECT * from testruns ORDER BY id DESC LIMIT 1'
+
+    _display(options, query)
 
 def dump(parser, options, args):
     conn = sqlite3.connect(options.db)
@@ -269,33 +298,26 @@ def dump(parser, options, args):
         cur2 = conn.cursor()
         cur2.execute("SELECT * from %s;" % n[0])
         for result in cur2:
-            for r in result:
+            for i,r in enumerate(result):
+                if i > 0:
+                    print ', ',
                 if isinstance(r, basestring):
-                    print r[0:50],', ',
+                    print r[-50:],
                 else:
-                    print r,', ',
+                    print r,
             print ''
 
-def tests(parser, options, args):
-    pass
-
-def summary(parser, options, args):
-    if options.all:
-        query = 'SELECT * from testruns'
-    elif options.start or options.end:
-        pass
-    elif options.latest:
-        query = 'SELECT * from testruns ORDER BY id DESC LIMIT 1'
-
-    db = DBWrapper(options.db)
-
-    for line in db.query(query):
-        print line
+def query(parser, options, args):
+    _display(options, args[0])
 
 def testdb():
     """A command line interface for querying a test database."""
     parser = _get_testdb_parser()
     options, args = parser.parse_known_args()
+
+    if options.query:
+        _display(options, options.query)
+        sys.exit(0)
 
     sys.exit(options.func(parser, options, args))
 
@@ -306,6 +328,8 @@ if __name__ == '__main__':
     db = DBWrapper('testing.db')
     for line in db.query("SELECT * from tests"):
         print line
+
+
 
 
 
