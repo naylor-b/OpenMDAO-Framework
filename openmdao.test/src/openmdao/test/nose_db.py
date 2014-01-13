@@ -265,7 +265,9 @@ def _get_testdb_parser():
 def _display(options, query, stream=sys.stdout):
     db = DBWrapper(options.db)
     for line in db.query(query):
-        stream.write("%s\n" % line)
+        for entry in line:
+            stream.write(str(entry))
+        stream.write("\n")
 
 def _get_last_testrun(options):
     db = DBWrapper(options.db)
@@ -277,10 +279,11 @@ def tests(parser, options, args):
     pass
 
 def summary(parser, options, args):
+    query = 'SELECT * from testruns'
     if options.all:
         query = 'SELECT * from testruns'
     elif options.start or options.end:
-        pass
+        pass  # TODO: fix this
     elif options.latest:
         query = 'SELECT * from testruns ORDER BY id DESC LIMIT 1'
 
