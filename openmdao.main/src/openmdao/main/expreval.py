@@ -395,17 +395,14 @@ class ExprExaminer(ast.NodeVisitor):
             self.assignable = False
         super(ExprExaminer, self).generic_visit(node)
 
-    def _ignore(self, node):
-        super(ExprExaminer, self).generic_visit(node)
-
     def _no_assign(self, node):
         self.assignable = self.simplevar = False
         super(ExprExaminer, self).generic_visit(node)
 
-    visit_Load       = _ignore
-    visit_Store      = _ignore
-    visit_Expr       = _ignore
-    visit_Expression = _ignore
+    visit_Load       = ast.NodeVisitor.generic_visit
+    visit_Store      = ast.NodeVisitor.generic_visit
+    visit_Expr       = ast.NodeVisitor.generic_visit
+    visit_Expression = ast.NodeVisitor.generic_visit
 
     visit_Call       = _no_assign
     visit_USub       = _no_assign
