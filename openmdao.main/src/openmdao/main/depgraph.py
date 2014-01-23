@@ -645,7 +645,7 @@ class DependencyGraph(nx.DiGraph):
         for u,v in self.in_edges_iter(name):
             if is_connection(self, u, v):
                 srcs.append(u)
-            else:
+            elif is_subvar_node(self, u):
                 for uu,vv in self.in_edges_iter(u):
                     if is_connection(self, uu, vv):
                         srcs.append(uu)
