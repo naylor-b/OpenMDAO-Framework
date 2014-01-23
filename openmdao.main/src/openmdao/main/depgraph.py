@@ -1,7 +1,6 @@
 from collections import deque
 from itertools import chain
 from ordereddict import OrderedDict
-import pprint
 
 import networkx as nx
 
@@ -144,6 +143,7 @@ def is_connected_src_node(graph, node):
     for u,v in graph.edges_iter(node):
         if is_connection(graph, u, v):
             return True
+    return False
 
 def is_connected_dest_node(graph, node):
     """Return True if this node is part of a connection,
@@ -153,6 +153,7 @@ def is_connected_dest_node(graph, node):
     for u,v in graph.in_edges_iter(node):
         if is_connection(graph, u, v):
             return True
+    return False
 
 def is_pseudo_node(graph, node):
     return 'pseudo' in graph.node.get(node, '')
@@ -318,18 +319,18 @@ class DependencyGraph(nx.DiGraph):
             added_outs = new_outs - old_outs
             added_states = new_states - old_states
             added_resids = new_resids - old_resids
-            
+
             # add new inputs/outputs/states/residuals to the graph
             self.add_nodes_from(added_ins,    var=True, valid=True,  iotype='in')
             self.add_nodes_from(added_outs,   var=True, valid=False, iotype='out')
             self.add_nodes_from(added_states, var=True, valid=False, iotype='state')
             self.add_nodes_from(added_resids, var=True, valid=False, iotype='residual')
-    
+
             # add edges from the variables to their parent component
             self.add_edges_from([(v,cname) for v in chain(added_ins, added_states)])
             self.add_edges_from([(cname,v) for v in chain(added_outs, added_states,
                                                           added_resids)])
-    
+
             if added_outs or added_states or added_resids:
                 self.node[cname]['valid'] = False
 
@@ -338,7 +339,7 @@ class DependencyGraph(nx.DiGraph):
             rem_outs = old_outs - new_outs
             rem_states = old_states - new_states
             rem_resids = old_resids - new_resids
-    
+
             # for removed inputs/outputs/states/residuals, may need to
             # remove connections and subvars
             for n in chain(rem_ins, rem_outs, rem_states, rem_resids):
@@ -440,10 +441,11 @@ class DependencyGraph(nx.DiGraph):
         if conns:
             if destpath == dpbase:
                 connected = True
-            elif destpath in [v for u,v in conns]:
-                connected = True
             else:
                 for u, v in conns:
+                    if destpath == v:
+                        connected = True
+                        break
                     if is_basevar_node(self, v):
                         connected = True
                         break
@@ -660,7 +662,7 @@ class DependencyGraph(nx.DiGraph):
             if src == pred:
                 return
             if pred.startswith(path):  # subvar
-                for p in self.predecessors(pred):
+                for p in self.predecessors_iter(pred):
                     if src == p:
                         return
         if len(preds) > 0:
@@ -675,26 +677,24 @@ class DependencyGraph(nx.DiGraph):
         by the starting node.  This captures all var and subvar
         nodes associated with the starting node.
         """
-        bunch = []
+        bunch = set()
         ndot = node+'.'
         nbrack = node+'['
 
         if direction != 'in':
             succ = self.successors(node)
-            bunch.extend(succ)
+            bunch.update(succ)
             for s in succ:
-                bunch.extend(self.successors_iter(s))
+                bunch.update(self.successors_iter(s))
 
         if direction != 'out':
             pred = self.predecessors(node)
-            bunch.extend(pred)
+            bunch.update(pred)
             for p in pred:
-                bunch.extend(self.predecessors_iter(p))
+                bunch.update(self.predecessors_iter(p))
                 # it's possible for some input basevars to have subvars thar are
                 # sucessors instead of predecessors
-                for succ in self.successors_iter(p):
-                    if succ not in bunch:
-                        bunch.append(succ)
+                bunch.update(self.successors_iter(p))
 
         return [n for n in bunch if n.startswith(ndot)
                                  or n.startswith(nbrack)]
@@ -1490,7 +1490,7 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False):
                         newsrc = dest.replace(base_dest, graph.base_var(src), 1)
                     if newsrc not in graph:
                         graph.add_subvar(newsrc)
-                for s, d in graph.edges(dest):
+                for s, d in graph.edges_iter(dest):
                     graph.add_edge(newsrc, d, attr_dict=graph.edge[s][d])
                     to_remove.add((s,d))
                 to_remove.add((src, dest))
