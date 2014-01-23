@@ -317,21 +317,6 @@ class ExprExaminer(ast.NodeVisitor):
 
         self.visit(node)
 
-        # # get rid of any refs that are just substrings of real refs, e.g., if
-        # # the real ref is 'x[3]', then there will also be a 'fake' ref for 'x'
-        # if len(self.refs) > 1:
-        #     ep = ExprPrinter() # first we have to convert back into a string
-        #     ep.visit(node)
-        #     txt = ep.get_text()
-        #     # now we loop through the refs from longest to shortest, removing
-        #     # each from the expression string.  As we get to each ref, we
-        #     # search for it in what's left of the expression string. If we find
-        #     # it, then it's a real ref.
-        #     for ref in sorted(self.refs, key=len, reverse=True):
-        #         if ref not in txt:
-        #             self.refs.remove(ref)
-        #         txt = txt.replace(ref, '')
-
     def _maybe_add_ref(self, name):
         """Will add a ref if it's not a name from the locals dict."""
         if not self.ref_ok:
@@ -398,12 +383,11 @@ class ExprExaminer(ast.NodeVisitor):
         p = ExprPrinter()
         p.visit(node)
         self._maybe_add_ref(p.get_text())
-        sup = super(ExprExaminer, self)
         ok = self.ref_ok
         self.ref_ok = False
-        sup.generic_visit(node.value)
+        self.visit(node.value)
+        self.visit(node.slice)
         self.ref_ok = ok
-        sup.generic_visit(node.slice)
 
     def visit_Num(self, node):
         self.simplevar = False
@@ -922,13 +906,13 @@ class ConnectedExprEvaluator(ExprEvaluator):
                 raise RuntimeError("bad destination expression '%s': only"
                                    " constant indices are allowed for arrays"
                                    " and slices" % self.text)
-            if not self._examiner.assignable:
-                raise RuntimeError("bad destination expression '%s': not"
-                                   " assignable" % self.text)
             if len(self._examiner.refs) != 1:
                 raise RuntimeError("bad connected expression '%s' must"
                                    " reference exactly one variable" %
                                    self.text)
+            if not self._examiner.assignable:
+                raise RuntimeError("bad destination expression '%s': not"
+                                   " assignable" % self.text)
 
     def refers_to(self, name):
         """Returns True if this expression refers to the given variable or
