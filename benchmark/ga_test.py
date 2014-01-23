@@ -41,13 +41,13 @@ if __name__ == "__main__":
         cProfile.run('prob.run()', 'profout')
         p = pstats.Stats('profout')
         p.strip_dirs()
-        p.sort_stats('time', 'calls')
-        #p.sort_stats('cumulative', 'time')
+        #p.sort_stats('time', 'calls')
+        p.sort_stats('cumulative', 'time')
         p.print_stats()
         print '\n\n---------------------\n\n'
         p.print_callers()
-        print '\n\n---------------------\n\n'
-        p.print_callees()
+        # print '\n\n---------------------\n\n'
+        # p.print_callees()
     else:
         prob.run()
 
