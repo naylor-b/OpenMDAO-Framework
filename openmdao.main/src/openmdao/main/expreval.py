@@ -763,7 +763,10 @@ class ExprEvaluator(object):
         """Set the value of the referenced object to the specified value."""
         scope = self._get_updated_scope(scope)
 
-        if self.is_valid_assignee():
+        if self._code is None:
+            self._pre_parse()
+
+        if self._allow_set:
             # self.assignment_code is a compiled version of an assignment
             # statement of the form 'somevar = _local_setter_', so we set
             # _local_setter_ here and the exec call will pull it out of the

@@ -14,11 +14,8 @@ class Rosenbrock(Component):
 class RBOpt(Assembly):
     """Optimization of 2d Rosenbrock"""
 
-    output = Float(1.0,iotype='out')
-
     def configure(self):
         self.add('func',Rosenbrock())
-        self.connect('func.f','output')
         self.add('driver',pyOptDriver())
         self.driver.optimizer='NSGA2'
         self.driver.options={'maxGen':250,'pMut_real':0.4}
