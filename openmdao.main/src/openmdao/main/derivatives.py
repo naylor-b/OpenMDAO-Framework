@@ -849,5 +849,5 @@ class FiniteDifference(object):
                 unravelled = unravel_index(index, old_val.shape)
                 old_val = old_val[unravelled]
 
-            return old_val
+        return old_val
 
