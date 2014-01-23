@@ -570,9 +570,8 @@ class ExprEvaluator(object):
 
     def _parse_get(self, root=None):
         astree = self._pre_parse(root)
-        varscanner = ExprVarScanner()
-        varscanner.visit(astree)
-
+        #varscanner = ExprVarScanner()
+        #varscanner.visit(astree)
 
         new_ast = ExprTransformer(self, getter=self.getter).visit(astree)
 
