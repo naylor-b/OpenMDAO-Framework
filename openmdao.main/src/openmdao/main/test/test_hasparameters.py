@@ -288,7 +288,7 @@ class HasParametersTestCase(unittest.TestCase):
         p.get_metadata()
         self.assertEqual(p.get_metadata(),
                          ('comp.x', {'high': None, 'iotype': 'in',
-                                     'type': 'trait', 'low': None,
+                                     'type': 'trait', 'low': None, 'copy': 'deep',
                                      'vartypename': 'Float'}))
 
         p2 = Parameter('comp.y', low=0, high=1e99, scope=self.top)

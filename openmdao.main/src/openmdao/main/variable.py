@@ -18,6 +18,17 @@ namecheck_rgx = re.compile(
 
 gui_excludes = ['type', 'vartypename', 'iotype', 'copy', 'validation_trait']
 
+# to use as a quick check for exprs to avoid overhead of constructing an
+# ExprEvaluator
+def is_varish(s):
+    """This returns False if the string contains an expression of some kind
+    rather than a simple variable reference (possibly with dots and/or square brackets).
+    It's assumed that s is either a valid expression or a valid variable reference.
+    """
+    for c in '*+-/<>()&| %!':
+        if c in s:
+            return False
+    return True
 
 def is_legal_name(name):
     '''Verifies a Pythonic legal name for use as an OpenMDAO object.'''
@@ -56,6 +67,12 @@ class Variable(TraitType):
                 # a good error message from here.
                 metadata['_illegal_default_'] = True
             default_value = _missing
+
+        # set default behavior during get_attr to deep copy.  Other
+        # options are 'shallow' and None.
+        if 'copy' not in metadata:
+            metadata['copy'] = 'deep'
+
         super(Variable, self).__init__(default_value=default_value, **metadata)
 
     def get_attribute(self, name, value, trait, meta):

@@ -50,7 +50,7 @@ class HasEventsTestCase(unittest.TestCase):
         self.assertEqual(self.asm.comp1.doit2_count, 0)
         
         self.asm.comp1.exec_count = 0
-        self.asm.comp1.invalidate_deps()
+        self.asm.comp1.some_int += 1
         
         self.asm.driver.add_event('comp1.doit')
         self.asm.run()

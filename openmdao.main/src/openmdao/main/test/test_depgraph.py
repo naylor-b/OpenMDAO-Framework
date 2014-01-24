@@ -53,9 +53,6 @@ class DumbClass(object):
     def run(self, *args, **kwargs):
         self.dep.child_run_finished(self.name)
         
-    def get_invalidation_type(self):
-        return 'full'
-
     def list_inputs(self):
         return self._inputs
 

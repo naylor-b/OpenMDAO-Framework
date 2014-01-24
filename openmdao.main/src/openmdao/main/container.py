@@ -44,7 +44,7 @@ from openmdao.main.mp_support import ObjectManager, OpenMDAO_Proxy, \
                                      is_instance, CLASSES_TO_PROXY, \
                                      has_interface
 from openmdao.main.rbac import rbac
-from openmdao.main.variable import Variable, is_legal_name, _missing
+from openmdao.main.variable import Variable, is_legal_name, _missing, is_varish
 from openmdao.util.log import Logger, logger
 from openmdao.util import eggloader, eggsaver, eggobserver
 from openmdao.util.eggsaver import SAVE_CPICKLE
@@ -1098,7 +1098,7 @@ class Container(SafeHasTraits):
                 return self._get_failed(path, index)
             return obj.get(restofpath, index)
         else:
-            if ('[' in path or '(' in path) and index is None:
+            if index is None and ('[' in path or '(' in path):
                 # caller has put indexing in the string instead of
                 # using the indexing protocol
                 # TODO: document somewhere that passing indexing
@@ -1170,7 +1170,10 @@ class Container(SafeHasTraits):
             if obj is Missing or not is_instance(obj, Container):
                 return self._set_failed(path, value, index, src, force)
             if src is not None:
-                src = ExprEvaluator(src, scope=self).scope_transform(self, obj, parent=self)
+                if is_varish(src):
+                    src = 'parent.'+src
+                else:
+                    src = ExprEvaluator(src, scope=self).scope_transform(self, obj, parent=self)
             obj.set(restofpath, value, index, src=src, force=force)
         else:
             try:

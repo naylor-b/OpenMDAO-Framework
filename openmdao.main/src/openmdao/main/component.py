@@ -164,7 +164,7 @@ class Component(Container):
         super(Component, self).__init__()
 
         self._exec_state = 'INVALID'  # possible values: VALID, INVALID, RUNNING
-        self._invalidation_type = 'full'
+        self._pull_inputs = True  # if True, inputs MAY be out of date
 
         # dependency graph between us and our boundaries
         # (bookkeeps connections between our variables and external ones).
@@ -224,10 +224,6 @@ class Component(Container):
                 pub.publish('.'.join([self.get_pathname(), 'exec_state']), state)
 
     @rbac(('owner', 'user'))
-    def get_invalidation_type(self):
-        return self._invalidation_type
-
-    @rbac(('owner', 'user'))
     def get_itername(self):
         """Return current 'iteration coordinates'."""
         return self.itername
@@ -247,7 +243,7 @@ class Component(Container):
 
         if name.endswith('_items'):
             n = name[:-6]
-            if hasattr(self, n):  # if n in self._valid_dict:
+            if hasattr(self, n):
                 name = n
 
         self._input_check(name, old)
@@ -256,13 +252,12 @@ class Component(Container):
     def _input_updated(self, name, fullpath=None):
         self._call_execute = True
         self._set_exec_state("INVALID")
-        if self.parent:
-            try:
-                inval = self.parent.child_invalidated
-            except AttributeError:
-                pass
-            else:
-                inval(self.name, vnames=[name], iotype='in')
+        try:
+            inval = self.parent.child_invalidated
+        except AttributeError:
+            pass
+        else:
+            inval(self.name, iotype='in')
 
     def __deepcopy__(self, memo):
         """ For some reason, deepcopying does not set the trait callback
@@ -417,30 +412,25 @@ class Component(Container):
         if self._call_cpath_updated:
             self.cpath_updated()
 
-        if force:
-            outs = self.invalidate_deps()
-            if (outs is None) or outs:
-                if self.parent:
-                    self.parent.child_invalidated(self.name, outs)
-        else:
-            if not self.is_valid():
+        # pull new inputs. If inputs actually change, _call_execute 
+        # will be set to true
+        if self._pull_inputs:  
+            if self.parent is None:
+                # if parent is None, we're not part of an Assembly
+                # so Variable validity doesn't apply. Just execute.
                 self._call_execute = True
-            elif self._num_input_caseiters > 0:
-                self._call_execute = True
-                # we're valid, but we're running anyway because of our input
-                # CaseIterators, so we need to notify downstream comps so they
-                # grab our new outputs
-                outs = self.invalidate_deps()
-                if (outs is None) or outs:
-                    if self.parent:
-                        self.parent.child_invalidated(self.name, outs)
+            else:
+                self.parent.update_inputs(self.name)
 
-        if self.parent is None:
-            # if parent is None, we're not part of an Assembly
-            # so Variable validity doesn't apply. Just execute.
+        if force or self._num_input_caseiters > 0:
             self._call_execute = True
-        else:
-            self.parent.update_inputs(self.name)
+            if self.parent:
+                self.parent.child_invalidated(self.name)
+
+        #if self._call_execute:
+            #self.invalidate_deps()
+            #if self.parent:
+                #self.parent.child_invalidated(self.name)
 
         self.check_configuration()
 
@@ -782,9 +772,7 @@ class Component(Container):
     @rbac(('owner', 'user'))
     def is_valid(self):
         """Return False if any of our variables is invalid."""
-        if self._call_execute or self._exec_state == 'INVALID':
-            return False
-        return True
+        return not (self._pull_inputs or self._call_execute)
 
     @rbac(('owner', 'user'))
     def config_changed(self, update_parent=True):
@@ -1542,24 +1530,19 @@ class Component(Container):
 
     def _validate(self):
         """Mark self as valid."""
+        #print "VALIDATING %s" % self.get_pathname()
+        self._pull_inputs = False
         self._call_execute = False
         self._set_exec_state('VALID')
 
     @rbac(('owner', 'user'))
     def invalidate_deps(self, varnames=None):
-        """Invalidate all of our outputs if they're not invalid already.
-        For a typical Component, this will always be all or nothing, meaning
-        there will never be partial validation of outputs.
-
-        NOTE: Components supporting partial output validation must override
-        this function.
-
-        Returns None, indicating that all outputs are newly invalidated, or [],
-        indicating that no outputs are newly invalidated.
+        """Mark this component as invalid, meaning that it must ask its
+        parent for new input values the next time it runs.
         """
-        self._call_execute = True
+        #print "INVALIDATING %s (%s)" % (self.get_pathname(),varnames)
+        self._pull_inputs = True
         self._set_exec_state('INVALID')
-        return None
 
     def _outputs_to_validate(self):
         return None  # indicates that all outputs should be validated
@@ -2001,14 +1984,11 @@ class Component(Container):
                 ['.'.join([self.name, n]) for n in names])
         else:
             valids = []
-            if self._exec_state == 'INVALID':
-                isvalid = False
-            else:
-                isvalid = True
+            isvalid = self.is_valid()
             for name in names:
-                if is_input_node(self._depgraph, name):
+                if isvalid:
                     valids.append(True)
-                elif isvalid:
+                elif is_input_node(self._depgraph, name):
                     valids.append(True)
                 else:
                     valids.append(False)

@@ -119,9 +119,6 @@ class Assembly(Component):
         self.J_input_keys = None
         self.J_output_keys = None
 
-        # parent depgraph may have to invalidate us multiple times per pass
-        self._invalidation_type = 'partial'
-
         # default Driver executes its workflow once
         self.add('driver', Run_Once())
 
@@ -378,7 +375,7 @@ class Assembly(Component):
         self.add_trait(newname, newtrait)
 
         # Copy trait value according to 'copy' attribute in the trait
-        val = self.get(pathname)
+        val = self.get_attr(pathname)
 
         ttype = trait.trait_type
         if ttype.copy:
@@ -527,10 +524,11 @@ class Assembly(Component):
                 # so we have to call config_changed to notify our driver
                 self.config_changed(update_parent=False)
 
-                outs = self._depgraph.invalidate_deps(self, [dest])
-                if (outs is None) or outs:
-                    for cname, vnames in partition_names_by_comp(outs).items():
-                        self.child_invalidated(cname, vnames)
+                #self._depgraph.invalidate_deps(self, [dest])
+                self.invalidate_deps([dest])
+                #if (outs is None) or outs:
+                    #for cname, vnames in partition_names_by_comp(outs).items():
+                        #self.child_invalidated(cname, vnames)
 
     @rbac(('owner', 'user'))
     def disconnect(self, varpath, varpath2=None):
@@ -699,36 +697,27 @@ class Assembly(Component):
 
         try:
             for inv_dest in invalid_dests:
-                self._depgraph.update_destvar(self, inv_dest)
+                graph.update_destvar(self, inv_dest)
         except Exception as err:
             self.raise_exception(str(err), type(err))
 
     def _input_updated(self, name, fullpath=None):
-        outs = self.invalidate_deps([name])
-        if outs and self.parent:
-            self.parent.child_invalidated(self.name, outs)
+        super(Assembly, self)._input_updated(name)
+        self._depgraph.invalidate_deps(self, [name])
 
     @rbac(('owner', 'user'))
-    def child_invalidated(self, childname, vnames=None, iotype='out'):
+    def child_invalidated(self, childname, iotype='out'):
         """Invalidate all variables that depend on the variable
         provided by the child that has been invalidated.
         """
         if childname not in self._depgraph:
             return []
 
-        if vnames is None:
-            vnames = [childname]
-        elif childname:
-            vnames = ['.'.join([childname, n]) for n in vnames]
-            if iotype == 'in':
-                for name in vnames[:]:
-                    vnames.extend(self._depgraph._all_child_vars(name,
-                                                                 direction='in'))
-
-        bouts = self.invalidate_deps(vnames)
-        if bouts and self.parent:
-            self.parent.child_invalidated(self.name, bouts)
-        return bouts
+        self._call_execute = True
+        
+        self.invalidate_deps([childname])
+        if self.parent:
+            self.parent.child_invalidated(self.name)
 
     @rbac(('owner', 'user'))
     def child_run_finished(self, childname, outs=None):
@@ -757,9 +746,6 @@ class Assembly(Component):
         self._depgraph.validate_boundary_vars()
         super(Assembly, self)._validate()
 
-    def has_partial_validation(self):
-        return True
-
     def invalidate_deps(self, varnames=None):
         """Mark all Variables invalid that depend on varnames.
         Returns a list of our newly invalidated boundary outputs.
@@ -767,17 +753,12 @@ class Assembly(Component):
         varnames: iter of str (optional)
             An iterator of names of destination variables.
         """
-        # If varnames is None, we're being called from a parent Assembly
-        # as part of a higher level invalidation, so we only need to look
-        # at our connected inputs
+        super(Assembly, self).invalidate_deps()
+
         if varnames is None:
-            names = self._depgraph.get_extern_srcs()
-        else:
-            names = varnames
+            varnames = self._depgraph.get_extern_srcs()
 
-        self._set_exec_state('INVALID')
-
-        return self._depgraph.invalidate_deps(self, names)
+        return self._depgraph.invalidate_deps(self, varnames)
 
     def exec_counts(self, compnames):
         return [getattr(self, c).exec_count for c in compnames]

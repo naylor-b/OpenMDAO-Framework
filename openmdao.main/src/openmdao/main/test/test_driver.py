@@ -30,6 +30,7 @@ class DriverTestCase(unittest.TestCase):
         top.driver.workflow.add('evcomp')
         
     def test_add_event(self):
+        self.asm.force_execute = True
         self.asm.evcomp.force_execute = True
         for i in range(3):
             self.asm.run()

@@ -9,23 +9,13 @@ from openmdao.main.interfaces import IDriver, IVariableTree, \
                                      IImplicitComponent, ISolver, \
                                      IAssembly, IComponent
 from openmdao.main.expreval import ExprEvaluator
+from openmdao.main.variable import is_varish
 from openmdao.main.array_helpers import is_differentiable_var
 from openmdao.main.pseudoassembly import PseudoAssembly, from_PA_var, to_PA_var
 from openmdao.util.nameutil import partition_names_by_comp
 from openmdao.util.graph import flatten_list_of_iters
 
-# # to use as a quick check for exprs to avoid overhead of constructing an
-# # ExprEvaluator
-_exprchars = set('+-/*()&| %<>!')
-
 _missing = object()
-
-def _is_expr(node):
-    """Returns True if node is an expression that is not a simple
-    variable reference, or a reference to a single array entry or
-    vartree attribute.
-    """
-    return len(_exprchars.intersection(node)) > 0
 
 def _sub_or_super(s1, s2):
     """Returns True if s1 is a subvar or supervar of s2."""
@@ -360,7 +350,6 @@ class DependencyGraph(nx.DiGraph):
                 kwargs['srcexpr'] = obj._orig_src
                 kwargs['destexpr'] = obj._orig_dest
 
-        kwargs['invalidation'] = obj.get_invalidation_type()
         kwargs['comp'] = True
         kwargs['valid'] = False
 
@@ -392,7 +381,7 @@ class DependencyGraph(nx.DiGraph):
 
         if name in self:
             raise RuntimeError("'%s' is already in the graph." % name)
-        if _is_expr(name):
+        if not is_varish(name):
             raise RuntimeError("can't add expression '%s'. as a Variable node."
                                % name)
         if '.' in name or '[' in name:
@@ -512,7 +501,7 @@ class DependencyGraph(nx.DiGraph):
         # create expression objects to handle setting of
         # array indces, etc.
         self.edge[srcpath][destpath]['sexpr'] = ExprEvaluator(srcpath, getter='get_attr')
-        self.edge[srcpath][destpath]['dexpr'] = ExprEvaluator(destpath, getter='get_attr')
+        self.edge[srcpath][destpath]['dexpr'] = ExprEvaluator(destpath)
 
         if invalidate:
             self.invalidate_deps(scope, [srcpath])
@@ -761,41 +750,47 @@ class DependencyGraph(nx.DiGraph):
         if not vnames:
             return []
 
-        outset = set()  # set of changed boundary outputs
+        #outset = set()  # set of changed boundary outputs
 
         ndata = self.node
-        stack = [(n, self.successors_iter(n), not is_comp_node(self, n))
-                        for n in vnames]
+        # stack = [(n, self.successors_iter(n), not is_comp_node(self, n))
+        #                 for n in vnames]
+        stack = [(n, self.successors_iter(n)) for n in vnames]
 
         visited = set()
         while(stack):
-            src, neighbors, checkvisited = stack.pop()
-            if checkvisited and src in visited:
+            src, neighbors = stack.pop()
+            #if checkvisited and src in visited:
+            if src in visited:
                 continue
             else:
                 visited.add(src)
 
             oldvalid = ndata[src]['valid']
             if oldvalid is True:
-                if self.in_degree(src) or src.startswith('parent.'): # don't invalidate unconnected inputs
+                if is_comp_node(self, src):
+                    getattr(scope, src).invalidate_deps()
                     ndata[src]['valid'] = False
-                if is_boundary_node(self, src) and is_output_base_node(self, src):
-                    outset.add(src)
+                elif self.in_degree(src) or src.startswith('parent.'): # don't invalidate unconnected inputs
+                    ndata[src]['valid'] = False
+                #if is_boundary_node(self, src) and is_output_base_node(self, src):
+                    #outset.add(src)
 
-            parsources = self.get_sources(src)
+            #parsources = self.get_sources(src)
             for node in neighbors:
-                if is_comp_node(self, node):
-                    if ndata[node]['valid'] or ndata[node].get('invalidation')=='partial':
-                        outs = getattr(scope, node).invalidate_deps(['.'.join(['parent', n])
-                                                                      for n in parsources])
-                        if outs is None:
-                            stack.append((node, self.successors_iter(node), True))
-                        else: # partial invalidation
-                            stack.append((node, ['.'.join([node,n]) for n in outs], False))
-                else:
-                    stack.append((node, self.successors_iter(node), True))
+                # if is_comp_node(self, node):
+                #     if ndata[node]['valid']: # or ndata[node].get('invalidation')=='partial':
+                #         # outs = getattr(scope, node).invalidate_deps(['.'.join(['parent', n])
+                #         #                                               for n in parsources])
+                #         getattr(scope, node).invalidate_deps()
+                #         #if outs is None:
+                #         stack.append((node, self.successors_iter(node)))
+                #         #else: # partial invalidation
+                #             #stack.append((node, ['.'.join([node,n]) for n in outs], False))
+                # else:
+                stack.append((node, self.successors_iter(node)))
 
-        return outset
+        #return outset
 
     def get_boundary_inputs(self, connected=False):
         """Returns inputs that are on the component boundary.
@@ -1035,7 +1030,8 @@ class DependencyGraph(nx.DiGraph):
     def update_boundary_outputs(self, scope):
         """Update destination vars on our boundary."""
         for out in self.get_boundary_outputs():
-            self.update_destvar(scope, out)
+            if self.in_degree(out):
+                self.update_destvar(scope, out)
 
     def update_destvar(self, scope, vname):
         """Update the value of the given variable in the
@@ -1045,16 +1041,22 @@ class DependencyGraph(nx.DiGraph):
         for u,v,data in self.in_edges_iter(vname, data=True):
             if 'conn' in data:
                 try:
+                    # print "setting %s to %s:" % (data['dexpr'].text, data['sexpr'].text)
+                    # print "values:  %s  <---  %s" % (data['dexpr'].evaluate(scope=scope),
+                    #                                 data['sexpr'].evaluate(scope=scope))
                     data['dexpr'].set(data['sexpr'].evaluate(scope=scope),
                                       src=u, scope=scope)
                 except Exception as err:
                     raise err.__class__("cannot set '%s' from '%s': %s" %
                                          (v, u, str(err)))
                 valid_set.add(v)
-            else:
+            elif is_subvar_node(self, u):
                 for uu,vv,ddata in self.in_edges_iter(u, data=True):
                     if 'conn' in ddata:
                         try:
+                            # print "setting %s to %s" % (ddata['dexpr'].text, ddata['sexpr'].text)
+                            # print "values:  %s  <---  %s" % (ddata['dexpr'].evaluate(scope=scope),
+                            #                                 ddata['sexpr'].evaluate(scope=scope))
                             ddata['dexpr'].set(ddata['sexpr'].evaluate(scope=scope),
                                                src=uu, scope=scope)
                         except Exception as err:
@@ -1075,7 +1077,9 @@ class DependencyGraph(nx.DiGraph):
             for n in self.successors_iter(inp):
                 meta[n]['valid'] = True
                 if is_subvar_node(self, n):
-                    for var in self._all_child_vars(self.node[n]['basevar']):
+                    base = self.node[n]['basevar']
+                    meta[base]['valid'] = True
+                    for var in self._all_child_vars(base):
                         meta[var]['valid'] = True
 
         for out in self.get_boundary_outputs():

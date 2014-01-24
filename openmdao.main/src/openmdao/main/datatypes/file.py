@@ -53,6 +53,11 @@ class File(Variable):
                 if 'local_path' in metadata:
                     raise ValueError("'local_path' invalid for output File.")
 
+        # apparently FileRefs don't like to be deep copied (the default),
+        # so override the deepcopy here so it will be passed by reference.
+        if 'copy' not in metadata:
+            metadata['copy'] = None
+
         # iotype of None => we can't check anything.
             
         super(File, self).__init__(default_value, **metadata)

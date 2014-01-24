@@ -246,24 +246,17 @@ class PseudoComponent(object):
 
     def invalidate_deps(self, varnames=None, force=False):
         self._valid = False
-        return None
-
-    def get_invalidation_type(self):
-        return 'full'
 
     def connect(self, src, dest):
-        self._valid = False
+        self.invalidate_deps()
 
     def run(self, ffd_order=0, case_id=''):
-        self.update_inputs()
+        self._parent.update_inputs(self.name)
 
         src = self._srcexpr.evaluate()
         setattr(self, 'out0', src)
         self._valid = True
         self._parent.child_run_finished(self.name)
-
-    def update_inputs(self, inputs=None):
-        self._parent.update_inputs(self.name)
 
     def update_outputs(self, names):
         self.run()
