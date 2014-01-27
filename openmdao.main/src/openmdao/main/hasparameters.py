@@ -273,6 +273,7 @@ class Parameter(ParameterBase):
 
     def set(self, val, scope=None):
         """Assigns the given value to the target of this parameter."""
+        print "setting parameter %s" % self._expreval.text
         self._expreval.set(self._transform(val), scope, force=True)
 
     def copy(self):
@@ -1045,6 +1046,7 @@ class HasParameters(object):
             targets and added as inputs to the Case instead of being set
             directly into the model.
         """
+        print "*** setting parameters: %s" % values
         if len(values) != self.total_parameters():
             raise ValueError("number of input values (%s) != expected number of"
                              " values (%s)" %

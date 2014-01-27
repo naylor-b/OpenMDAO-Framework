@@ -195,12 +195,12 @@ class MultiDriverTestCase(unittest.TestCase):
         print "*** test_one_driver ***"
         self.rosen_setUp()
         self.top.run()
-        assert_rel_error(self, self.opt_objective, 
-                         self.top.driver1.eval_objective(), 0.01)
+        assert_rel_error(self, self.top.driver1.eval_objective(), 
+                         self.opt_objective, 0.01)
         self.assertAlmostEqual(self.opt_design_vars[0], 
                                self.top.comp1.x, places=1)
-        assert_rel_error(self, self.opt_design_vars[1], self.top.comp2.x, 0.01)
-        assert_rel_error(self, self.opt_design_vars[2], self.top.comp3.x, 0.01)
+        assert_rel_error(self, self.top.comp2.x, self.opt_design_vars[1], 0.01)
+        assert_rel_error(self, self.top.comp3.x, self.opt_design_vars[2], 0.01)
         self.assertAlmostEqual(self.opt_design_vars[3], 
                                self.top.comp4.x, places=1)
         runcount = self.top.adder3.runcount

@@ -721,6 +721,7 @@ Max RelError: [^ ]+ for comp.f_xy / comp.x
         assert_rel_error(self, J[0, 0], 13.0, 0.0001)
 
         top.driver.workflow.config_changed()
+        print "==================================="
         J = top.driver.workflow.calc_gradient(inputs=['comp1.x'],
                                               outputs=[obj],
                                               mode='fd')

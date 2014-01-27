@@ -706,7 +706,7 @@ class Assembly(Component):
         self._depgraph.invalidate_deps(self, [name])
 
     @rbac(('owner', 'user'))
-    def child_invalidated(self, childname, iotype='out'):
+    def child_invalidated(self, childname, vname=None):
         """Invalidate all variables that depend on the variable
         provided by the child that has been invalidated.
         """
@@ -715,7 +715,10 @@ class Assembly(Component):
 
         self._call_execute = True
         
-        self.invalidate_deps([childname])
+        if vname:
+            self.invalidate_deps(['.'.join([childname, vname])])
+        else:
+            self.invalidate_deps([childname])
         if self.parent:
             self.parent.child_invalidated(self.name)
 
@@ -739,6 +742,7 @@ class Assembly(Component):
         """Mark the io traits with the given names as valid or invalid."""
         data = self._depgraph.node
         for name in names:
+            print "setting %s to %s" % (name, valid)
             data[name]['valid'] = valid
 
     def _validate(self):

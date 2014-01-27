@@ -257,7 +257,7 @@ class Component(Container):
         except AttributeError:
             pass
         else:
-            inval(self.name, iotype='in')
+            inval(self.name, name)
 
     def __deepcopy__(self, memo):
         """ For some reason, deepcopying does not set the trait callback
@@ -415,14 +415,14 @@ class Component(Container):
         # pull new inputs. If inputs actually change, _call_execute 
         # will be set to true
         if self._pull_inputs:  
-            if self.parent is None:
-                # if parent is None, we're not part of an Assembly
-                # so Variable validity doesn't apply. Just execute.
-                self._call_execute = True
-            else:
+            if self.parent is not None:
                 self.parent.update_inputs(self.name)
 
-        if force or self._num_input_caseiters > 0:
+        if self.parent is None:
+            # if parent is None, we're not part of an Assembly
+            # so Variable validity doesn't apply. Just execute.
+            self._call_execute = True
+        elif force or self._num_input_caseiters > 0:
             self._call_execute = True
             if self.parent:
                 self.parent.child_invalidated(self.name)
@@ -603,7 +603,7 @@ class Component(Container):
                     pass
 
                 else:
-                    #print 'execute: %s' % self.get_pathname()
+                    print 'execute: %s' % self.get_pathname()
                     # Component executes as normal
                     self.exec_count += 1
                     if tracing.TRACER is not None and \

@@ -601,7 +601,7 @@ class FiniteDifference(object):
 
         for j, src, in enumerate(self.inputs):
 
-            # Users can cusomtize the FD per variable
+            # Users can customize the FD per variable
             fd_step = self.fd_step[j]
             if j in self.form_custom:
                 form = self.form_custom[j]
@@ -778,14 +778,19 @@ class FiniteDifference(object):
                     # must do it manually.
                     if var_name:
                         base = self.scope._depgraph.base_var(src)
+                        print "calling %s._input_updated from set_value" % comp.name
+                        print "   args = %s,   %s" % (base.split('.')[-1],
+                                            src.split('[')[0].partition('.')[2])
                         comp._input_updated(base.split('.')[-1],
                                             src.split('[')[0].partition('.')[2])
                     else:
+                        print "calling input_updated(%s)" % comp_name.split('[')[0]
                         self.scope._input_updated(comp_name.split('[')[0])
 
                 # Scalar
                 else:
                     old_val = self.scope.get(src)
+                    print "setting %s value to %s" % (src, old_val+val)
                     self.scope.set(src, old_val+val, force=True)
 
             # Full vector
@@ -810,9 +815,12 @@ class FiniteDifference(object):
                 # do it manually.
                 if var_name:
                     base = self.scope._depgraph.base_var(src)
+                    print "calling input_updated(%s, %s)" % (base.split('.')[-1],
+                                        src.split('[')[0].partition('.')[2])
                     comp._input_updated(base.split('.')[-1],
                                         src.split('[')[0].partition('.')[2])
                 else:
+                    print "calling input_updated(%s)" % comp_name.split('[', 1)[0]
                     self.scope._input_updated(comp_name.split('[', 1)[0])
 
             # Prevent OpenMDAO from stomping on our poked input.

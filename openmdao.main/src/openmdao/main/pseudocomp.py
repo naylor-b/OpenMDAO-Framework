@@ -83,7 +83,8 @@ class PseudoComponent(object):
         self.name = _get_new_name()
         self._inmap = {} # mapping of component vars to our inputs
         self._meta = {}
-        self._valid = False
+        self._pull_inputs = True
+        self._call_execute = True
         self._parent = parent
         self._inputs = []
         self.force_fd = False
@@ -245,18 +246,22 @@ class PseudoComponent(object):
             scope.disconnect(src, dest)
 
     def invalidate_deps(self, varnames=None, force=False):
-        self._valid = False
+        self._pull_inputs = True
 
     def connect(self, src, dest):
         self.invalidate_deps()
 
     def run(self, ffd_order=0, case_id=''):
-        self._parent.update_inputs(self.name)
+        if self._pull_inputs:
+            self._parent.update_inputs(self.name)
 
-        src = self._srcexpr.evaluate()
-        setattr(self, 'out0', src)
-        self._valid = True
-        self._parent.child_run_finished(self.name)
+        if self._call_execute:
+            print "******* executing %s" % self.name
+            self.out0 = self._srcexpr.evaluate()
+            self._parent.child_run_finished(self.name)
+            
+        self._pull_inputs = False
+        self._call_execute = False
 
     def update_outputs(self, names):
         self.run()
@@ -269,8 +274,15 @@ class PseudoComponent(object):
     def set(self, path, value, index=None, src=None, force=False):
         if index is not None:
             raise ValueError("index not supported in PseudoComponent.set")
-        self.invalidate_deps()
-        setattr(self, path, value)
+        old = getattr(self, path)
+        try:
+            eq = bool(old == value)
+        except ValueError:
+            eq = all(old == value)
+
+        if not eq:
+            self._call_execute = True
+            setattr(self, path, value)
 
     def get_metadata(self, traitpath, metaname=None):
         if metaname is None:
@@ -278,7 +290,7 @@ class PseudoComponent(object):
         return self._meta[traitpath].get(metaname)
 
     def is_valid(self):
-        return self._valid
+        return not (self._pull_inputs or self._call_execute)
 
     def set_itername(self, itername):
         self._itername = itername

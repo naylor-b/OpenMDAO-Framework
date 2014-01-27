@@ -755,6 +755,12 @@ class DependencyGraph(nx.DiGraph):
         ndata = self.node
         # stack = [(n, self.successors_iter(n), not is_comp_node(self, n))
         #                 for n in vnames]
+        # stack = []
+        # for name in vnames:
+        #     if ndata[name].get('iotype') == 'in':
+        #         stack.extend([(n, self.successors_iter(n)) for n in self.successors_iter(name)])
+        #     else:
+        #         stack.append((name, self.successors_iter(name)))
         stack = [(n, self.successors_iter(n)) for n in vnames]
 
         visited = set()
@@ -771,8 +777,10 @@ class DependencyGraph(nx.DiGraph):
                 if is_comp_node(self, src):
                     getattr(scope, src).invalidate_deps()
                     ndata[src]['valid'] = False
+                    print "invalidated %s in %s" % (src, scope.name)
                 elif self.in_degree(src) or src.startswith('parent.'): # don't invalidate unconnected inputs
                     ndata[src]['valid'] = False
+                    print "invalidated %s in %s" % (src, scope.name)
                 #if is_boundary_node(self, src) and is_output_base_node(self, src):
                     #outset.add(src)
 
@@ -790,6 +798,7 @@ class DependencyGraph(nx.DiGraph):
                 # else:
                 stack.append((node, self.successors_iter(node)))
 
+        print "invalidation done for %s" % vnames
         #return outset
 
     def get_boundary_inputs(self, connected=False):
@@ -1015,17 +1024,21 @@ class DependencyGraph(nx.DiGraph):
         """Called by a child when it completes its run() function."""
         data = self.node
         data[childname]['valid'] = True
+        print "validated %s" % childname
 
         if outs:
             if childname:
                 outs = ['.'.join([childname,n]) for n in outs]
             for out in outs:
                 data[out]['valid'] = True
+                print "validated %s" % out
                 for var in self._all_child_vars(out, direction='out'):
                     data[var]['valid'] = True
+                    print "validated %s" % var
         else:
             for var in self._all_child_vars(childname, direction='out'):
                 data[var]['valid'] = True
+                print "validated %s" % var
 
     def update_boundary_outputs(self, scope):
         """Update destination vars on our boundary."""
@@ -1066,6 +1079,7 @@ class DependencyGraph(nx.DiGraph):
 
         for node in valid_set:
             self.node[node]['valid'] = True
+            print 'validated %s' % node
 
     def validate_boundary_vars(self):
         """Mark extern and boundary vars and their
@@ -1074,24 +1088,33 @@ class DependencyGraph(nx.DiGraph):
         meta = self.node
         for inp in self.get_extern_srcs():
             meta[inp]['valid'] = True
+            print "validated %s" % inp
+            
             for n in self.successors_iter(inp):
                 meta[n]['valid'] = True
+                print "validated %s" % n
                 if is_subvar_node(self, n):
                     base = self.node[n]['basevar']
                     meta[base]['valid'] = True
+                    print "validated %s" % base
                     for var in self._all_child_vars(base):
                         meta[var]['valid'] = True
+                        print "validated %s" % var
 
         for out in self.get_boundary_outputs():
             meta[out]['valid'] = True
+            print "validated %s" % out
             for n in self.successors_iter(out):
                 meta[n]['valid'] = True
+                print "validated %s" % n
                 if is_subvar_node(self, n):
                     for var in self._all_child_vars(out):
                         meta[var]['valid'] = True
+                        print "validated %s" % var
 
         for out in self.get_extern_dests():
             meta[out]['valid'] = True
+            print "validated %s" % out
 
     def edge_dict_to_comp_list(self, edges, implicit_edges=None):
         """Converts inner edge dict into an ordered dict whose keys
