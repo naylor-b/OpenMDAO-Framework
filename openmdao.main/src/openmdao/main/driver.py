@@ -399,7 +399,7 @@ class Driver(Component):
                          required_inputs=None, required_outputs=None):
         """ Calculate derivatives and save baseline states for all components
         in this workflow."""
-        print "%s: **** calc_derivatives" % self.name
+        #print "%s: **** calc_derivatives" % self.name
         self.workflow.calc_derivatives(first, second, savebase,
                                        required_inputs, required_outputs)
 

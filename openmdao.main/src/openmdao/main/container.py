@@ -638,19 +638,23 @@ class Container(SafeHasTraits):
                 return obj.get_attr(restofpath, index)
             return get_indexed_value(obj, restofpath)
 
-        trait = self.get_trait(name)
-        if trait is None:
-            self.raise_exception("trait '%s' does not exist" %
-                                 name, AttributeError)
-
-        # trait itself is most likely a CTrait, which doesn't have
-        # access to member functions on the original trait, aside
-        # from validate and one or two others, so we need to get access
-        # to the original trait which is held in the 'trait_type' attribute.
-        ttype = trait.trait_type
-
         val = getattr(self, name)
+
         if index is None:
+            if isinstance(val, (float,int,bool,basestring)):
+                return val
+
+            trait = self.get_trait(name)
+            if trait is None:
+                self.raise_exception("trait '%s' does not exist" %
+                                     name, AttributeError)
+
+            # trait itself is most likely a CTrait, which doesn't have
+            # access to member functions on the original trait, aside
+            # from validate and one or two others, so we need to get access
+            # to the original trait which is held in the 'trait_type' attribute.
+            ttype = trait.trait_type
+
             # copy value if 'copy' found in metadata
             if ttype.copy:
                 if isinstance(val, Container):

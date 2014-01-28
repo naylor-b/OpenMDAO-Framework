@@ -192,6 +192,7 @@ class ExecCompWithDerivatives(Component):
         if self.dsleep:
             time.sleep(self.dsleep)
 
+        #print "J for %s is %s" % (self.name, self.J)
         return self.J
             
     def list_deriv_vars(self):

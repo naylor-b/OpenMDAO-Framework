@@ -603,7 +603,7 @@ class Component(Container):
                     pass
 
                 else:
-                    print 'execute: %s' % self.get_pathname()
+                    #print 'execute: %s' % self.get_pathname()
                     # Component executes as normal
                     self.exec_count += 1
                     if tracing.TRACER is not None and \

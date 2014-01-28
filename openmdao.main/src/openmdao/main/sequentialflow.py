@@ -52,6 +52,7 @@ class SequentialWorkflow(Workflow):
         self._J_cache = {}
         self._bounds_cache = {}
         self._shape_cache = {}
+        #self._calcgrad_args = None
 
     def __iter__(self):
         """Returns an iterator over the components in the workflow."""
@@ -93,6 +94,7 @@ class SequentialWorkflow(Workflow):
         self._J_cache = {}
         self._bounds_cache = {}
         self._shape_cache = {}
+        #self._calcgrad_args = None
 
     def sever_edges(self, edges):
         """Temporarily remove the specified edges but save
@@ -947,7 +949,19 @@ class SequentialWorkflow(Workflow):
             difference disabled), or 'auto' to let OpenMDAO determine the
             correct mode.
         """
-
+    
+        # # if our args have changed since last time, recalculate graph stuff
+        # if not self._calcgrad_args or self._calcgrad_args['inputs'] != inputs or \
+        #     self._calcgrad_args['outputs'] != outputs or \
+        #     self._calcgrad_args['upscope'] != upscope or \
+        #     self._calcgrad_args['mode'] != mode:
+        #     self.config_changed()
+        #     self._calcgrad_args = {
+        #         'inputs': inputs,
+        #         'outputs': outputs,
+        #         'upscope': upscope,
+        #         'mode': mode,
+        #     } 
         self._J_cache = {}
 
         # User may request full-model finite difference.

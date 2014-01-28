@@ -23,6 +23,7 @@ import openmdao.main.pseudocomp as pcompmod
 from openmdao.test.execcomp import ExecCompWithDerivatives, ExecComp
 from openmdao.util.decorators import add_delegate
 from openmdao.util.testutil import assert_rel_error
+from openmdao.util.graph import get_valids
 
 class Tree2(VariableTree):
 
@@ -721,7 +722,11 @@ Max RelError: [^ ]+ for comp.f_xy / comp.x
         assert_rel_error(self, J[0, 0], 13.0, 0.0001)
 
         top.driver.workflow.config_changed()
-        print "==================================="
+        top.run()
+        #print "==================================="
+        #print "valids are: %s" % get_valids(top._depgraph, True)
+        #print "==================================="
+        #print "invalids are: %s" % get_valids(top._depgraph, False)
         J = top.driver.workflow.calc_gradient(inputs=['comp1.x'],
                                               outputs=[obj],
                                               mode='fd')

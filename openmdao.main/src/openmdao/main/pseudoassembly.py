@@ -130,7 +130,7 @@ class PseudoAssembly(object):
         for name in self.itercomps:
             comp = self.wflow.scope.get(name)
             comp.set_itername(self.itername+'-fd')
-            print self.name, "running", comp.name
+            #print self.name, "running", comp.name
             comp.run(ffd_order=ffd_order, case_id=case_id)
 
     def calc_derivatives(self, first=False, second=False, savebase=True,
@@ -170,6 +170,7 @@ class PseudoAssembly(object):
 
     def provideJ(self):
         """Jacobian for this block"""
+        #print "J for %s is %s" % (self.name, self.J)
         return self.J
 
     def list_deriv_vars(self):

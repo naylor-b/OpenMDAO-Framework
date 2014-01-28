@@ -256,7 +256,7 @@ class PseudoComponent(object):
             self._parent.update_inputs(self.name)
 
         if self._call_execute:
-            print "******* executing %s" % self.name
+            #print "******* executing %s" % self.name
             self.out0 = self._srcexpr.evaluate()
             self._parent.child_run_finished(self.name)
             

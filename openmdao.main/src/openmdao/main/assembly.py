@@ -717,8 +717,10 @@ class Assembly(Component):
         
         if vname:
             self.invalidate_deps(['.'.join([childname, vname])])
+            #print "child invalidated: %s" % '.'.join([childname, vname])
         else:
             self.invalidate_deps([childname])
+            #print "child %s invalidated" % childname
         if self.parent:
             self.parent.child_invalidated(self.name)
 
@@ -742,7 +744,7 @@ class Assembly(Component):
         """Mark the io traits with the given names as valid or invalid."""
         data = self._depgraph.node
         for name in names:
-            print "setting %s to %s" % (name, valid)
+            #print "setting %s to %s" % (name, valid)
             data[name]['valid'] = valid
 
     def _validate(self):

@@ -763,6 +763,8 @@ class DependencyGraph(nx.DiGraph):
         #         stack.append((name, self.successors_iter(name)))
         stack = [(n, self.successors_iter(n)) for n in vnames]
 
+        #inv = []  # TODO: remove this (used for debug only)
+
         visited = set()
         while(stack):
             src, neighbors = stack.pop()
@@ -777,10 +779,10 @@ class DependencyGraph(nx.DiGraph):
                 if is_comp_node(self, src):
                     getattr(scope, src).invalidate_deps()
                     ndata[src]['valid'] = False
-                    print "invalidated %s in %s" % (src, scope.name)
+                    #inv.append(src)
                 elif self.in_degree(src) or src.startswith('parent.'): # don't invalidate unconnected inputs
                     ndata[src]['valid'] = False
-                    print "invalidated %s in %s" % (src, scope.name)
+                    #inv.append(src)
                 #if is_boundary_node(self, src) and is_output_base_node(self, src):
                     #outset.add(src)
 
@@ -798,7 +800,7 @@ class DependencyGraph(nx.DiGraph):
                 # else:
                 stack.append((node, self.successors_iter(node)))
 
-        print "invalidation done for %s" % vnames
+        #print "invalidation in '%s' of %s --> %s" % (scope.name,vnames,inv)
         #return outset
 
     def get_boundary_inputs(self, connected=False):
@@ -1024,21 +1026,22 @@ class DependencyGraph(nx.DiGraph):
         """Called by a child when it completes its run() function."""
         data = self.node
         data[childname]['valid'] = True
-        print "validated %s" % childname
-
+        #print "%s finished.  validating..." % childname
+        #val = [] # TODO: remove this (for debugging only)
         if outs:
             if childname:
                 outs = ['.'.join([childname,n]) for n in outs]
             for out in outs:
                 data[out]['valid'] = True
-                print "validated %s" % out
+                #val.append(out)
                 for var in self._all_child_vars(out, direction='out'):
                     data[var]['valid'] = True
-                    print "validated %s" % var
+                    #val.eppend(var)
         else:
             for var in self._all_child_vars(childname, direction='out'):
                 data[var]['valid'] = True
-                print "validated %s" % var
+                #val.append(var)
+        #print "validated: %s" % val
 
     def update_boundary_outputs(self, scope):
         """Update destination vars on our boundary."""
@@ -1079,42 +1082,45 @@ class DependencyGraph(nx.DiGraph):
 
         for node in valid_set:
             self.node[node]['valid'] = True
-            print 'validated %s' % node
+            #print 'validated %s' % node
 
     def validate_boundary_vars(self):
         """Mark extern and boundary vars and their
         subvars as valid.
         """
+        #vals = [] # TODO: remove this
         meta = self.node
         for inp in self.get_extern_srcs():
             meta[inp]['valid'] = True
-            print "validated %s" % inp
+            #vals.append(inp)
             
             for n in self.successors_iter(inp):
                 meta[n]['valid'] = True
-                print "validated %s" % n
+                #vals.append(n)
                 if is_subvar_node(self, n):
                     base = self.node[n]['basevar']
                     meta[base]['valid'] = True
-                    print "validated %s" % base
+                    #vals.append(base)
                     for var in self._all_child_vars(base):
                         meta[var]['valid'] = True
-                        print "validated %s" % var
+                        #vals.append(var)
 
         for out in self.get_boundary_outputs():
             meta[out]['valid'] = True
-            print "validated %s" % out
+            #vals.append(out)
             for n in self.successors_iter(out):
                 meta[n]['valid'] = True
-                print "validated %s" % n
+                #vals.append(n)
                 if is_subvar_node(self, n):
                     for var in self._all_child_vars(out):
                         meta[var]['valid'] = True
-                        print "validated %s" % var
+                        #vals.append(var)
 
         for out in self.get_extern_dests():
             meta[out]['valid'] = True
-            print "validated %s" % out
+            #vals.append(out)
+
+        #print "boundaries validated: %s" % vals
 
     def edge_dict_to_comp_list(self, edges, implicit_edges=None):
         """Converts inner edge dict into an ordered dict whose keys
