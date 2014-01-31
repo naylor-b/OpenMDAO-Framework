@@ -2,12 +2,11 @@
 import ast
 from threading import RLock
 
-from openmdao.main.attrwrapper import UnitsAttrWrapper
 from openmdao.main.array_helpers import flattened_size
 from openmdao.main.expreval import ConnectedExprEvaluator, _expr_dict
 from openmdao.main.interfaces import implements, IComponent
 from openmdao.main.printexpr import transform_expression, print_node
-from openmdao.main.numpy_fallback import array, ndarray, hstack, zeros
+from openmdao.main.numpy_fallback import zeros
 
 from openmdao.units.units import PhysicalQuantity, UnitsOnlyPQ
 
@@ -80,6 +79,10 @@ class PseudoComponent(object):
     def __init__(self, parent, srcexpr, destexpr=None, translate=True, pseudo_type=None):
         if destexpr is None:
             destexpr = DummyExpr()
+
+        # needed in __setattr__
+        object.__setattr__(self, '_inputs', [])
+
         self.name = _get_new_name()
         self._inmap = {} # mapping of component vars to our inputs
         self._meta = {}
@@ -177,6 +180,15 @@ class PseudoComponent(object):
 
         self.missing_deriv_policy = 'error'
 
+    def __setattr__(self, name, val):
+        """This is always called whenever someone tries to set an 
+        attribute on this instance.
+        """
+        if name in self._inputs:
+            self.set(name, val)
+        else:
+            object.__setattr__(self, name, val)
+
     def check_configuration(self):
         pass
 
@@ -248,21 +260,18 @@ class PseudoComponent(object):
             scope.disconnect(src, dest)
 
     def invalidate_deps(self, varnames=None, force=False):
-        self._valid = False
-        return None
-
+        object.__setattr__(self, '_valid', False)
+ 
     def get_invalidation_type(self):
         return 'full'
 
     def connect(self, src, dest):
-        self._valid = False
+        object.__setattr__(self, '_valid', False)
 
     def run(self, ffd_order=0, case_id=''):
         self.update_inputs()
 
-        src = self._srcexpr.evaluate()
-        setattr(self, 'out0', src)
-        self._valid = True
+        object.__setattr__(self, 'out0', self._srcexpr.evaluate())
         self._parent.child_run_finished(self.name)
 
     def update_inputs(self, inputs=None):
@@ -279,8 +288,8 @@ class PseudoComponent(object):
     def set(self, path, value, index=None, src=None, force=False):
         if index is not None:
             raise ValueError("index not supported in PseudoComponent.set")
-        self.invalidate_deps()
-        setattr(self, path, value)
+        object.__setattr__(self, '_valid', False)
+        object.__setattr__(self, path, value)
 
     def get_metadata(self, traitpath, metaname=None):
         if metaname is None:
@@ -291,7 +300,7 @@ class PseudoComponent(object):
         return self._valid
 
     def set_itername(self, itername):
-        self._itername = itername
+        object.__setattr__(self, '_itername', itername)
 
     def calc_derivatives(self, first=False, second=False, savebase=False,
                          required_inputs=None, required_outputs=None):
@@ -306,15 +315,10 @@ class PseudoComponent(object):
 
         if self.Jsize is None:
             n_in = 0
-            n_out = 0
-            for varname in self.list_inputs():
-                val = self.get(varname)
-                width = flattened_size(varname, val, self)
-                n_in += width
-            for varname in self.list_outputs():
-                val = self.get(varname)
-                width = flattened_size(varname, val, self)
-                n_out += width
+            for varname in self._inputs:
+                n_in += flattened_size(varname, getattr(self, varname), self)
+
+            n_out = flattened_size('out0', self.out0, self)
             self.Jsize = (n_out, n_in)
 
         J = zeros(self.Jsize)
@@ -322,8 +326,7 @@ class PseudoComponent(object):
 
         i = 0
         for varname in self._inputs:
-            val = self.get(varname)
-            width = flattened_size(varname, val, self)
+            width = flattened_size(varname, getattr(self, varname), self)
             J[:, i:i+width] = grad[varname]
             i += width
 
