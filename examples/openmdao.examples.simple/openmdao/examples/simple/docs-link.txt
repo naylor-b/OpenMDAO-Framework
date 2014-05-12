@@ -1,1 +1,0 @@
-http://openmdao.org/docs/basics/building.html#building-a-component-paraboloid
