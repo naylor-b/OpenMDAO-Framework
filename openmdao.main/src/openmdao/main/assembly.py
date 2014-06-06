@@ -138,9 +138,9 @@ class Assembly(Component):
         # data dependency graph
         self._depgraph = DependencyGraph()
 
-        for name, trait in self.class_traits().items():
-            if trait.iotype:  # input or output
-                self._depgraph.add_boundary_var(self, name, iotype=trait.iotype)
+        #for name, trait in self.class_traits().items():
+            #if trait.iotype:  # input or output
+                #self._depgraph.add_boundary_var(self, name, iotype=trait.iotype)
 
         self._exprmapper = ExprMapper(self)
         self._graph_loops = []
@@ -205,24 +205,24 @@ class Assembly(Component):
     def _add_after_parent_set(self, name, obj):
         if has_interface(obj, IComponent):
             self._depgraph.add_component(name, obj)
-        elif has_interface(obj, IContainer) and name not in self._depgraph:
-            t = self.get_trait(name)
-            if t is not None:
-                io = t.iotype
-                if io:
-                    # since we just removed this container and it was
-                    # being used as an io variable, we need to put
-                    # it back in the dep graph
-                    self._depgraph.add_boundary_var(self, name, iotype=io)
+        # elif has_interface(obj, IContainer) and name not in self._depgraph:
+        #     t = self.get_trait(name)
+        #     if t is not None:
+        #         io = t.iotype
+        #         if io:
+        #             # since we just removed this container and it was
+        #             # being used as an io variable, we need to put
+        #             # it back in the dep graph
+        #             self._depgraph.add_boundary_var(self, name, iotype=io)
 
-    def add_trait(self, name, trait, refresh=True):
-        """Overrides base definition of *add_trait* in order to
-        update the depgraph.
-        """
-        super(Assembly, self).add_trait(name, trait, refresh)
-        if trait.iotype and name not in self._depgraph:
-            self._depgraph.add_boundary_var(self, name, 
-                                            iotype=trait.iotype)
+    #def add_trait(self, name, trait, refresh=True):
+        #"""Overrides base definition of *add_trait* in order to
+        #update the depgraph.
+        #"""
+        #super(Assembly, self).add_trait(name, trait, refresh)
+        #if trait.iotype and name not in self._depgraph:
+            #self._depgraph.add_boundary_var(self, name, 
+                                            #iotype=trait.iotype)
 
     def rename(self, oldname, newname):
         """Renames a child of this object from oldname to newname."""
@@ -633,7 +633,6 @@ class Assembly(Component):
             pseudocomp.make_connections(self)
         else:
             pseudocomp = None
-            self._depgraph.check_connect(src, dest)
             dcomps = destexpr.get_referenced_compnames()
             scomps = srcexpr.get_referenced_compnames()
             for dname in dcomps:
@@ -641,10 +640,10 @@ class Assembly(Component):
                     self.raise_exception("Can't connect '%s' to '%s'. Both refer"
                                          " to the same component." %
                                          (src, dest), RuntimeError)
-            for cname in chain(dcomps, scomps):
-                comp = getattr(self, cname)
-                if has_interface(comp, IComponent):
-                    comp.config_changed(update_parent=False)
+            #for cname in chain(dcomps, scomps):
+                #comp = getattr(self, cname)
+                #if has_interface(comp, IComponent):
+                    #comp.config_changed(update_parent=False)
 
             for vname in chain(srcexpr.get_referenced_varpaths(copy=False),
                                destexpr.get_referenced_varpaths(copy=False)):
@@ -806,15 +805,15 @@ class Assembly(Component):
         self.driver.stop()
 
     @rbac(('owner', 'user'))
-    def child_config_changed(self, child, adding=True, removing=True):
+    def child_config_changed(self, child):#, adding=True, removing=True):
         """A child has changed its input lists and/or output lists,
         so we need to update the graph.
         """
         # if this is called during __setstate__, self._depgraph may not
         # exist yet, so...
         if hasattr(self, '_depgraph'):
-            self._depgraph.child_config_changed(child, adding=adding,
-                                                removing=removing)
+            self._depgraph.child_config_changed(child)#, adding=adding,
+                                                #removing=removing)
 
     @rbac(('owner', 'user'))
     def _run_terminated(self):
@@ -857,7 +856,7 @@ class Assembly(Component):
         if graph is None:
             graph = self._depgraph
         try:
-            for vname in graph.list_inputs(compname, connected=True):
+            for vname in graph.list_inputs(compname):
                 graph.update_destvar(self, vname)
         except Exception as err:
             self.raise_exception(str(err), type(err))

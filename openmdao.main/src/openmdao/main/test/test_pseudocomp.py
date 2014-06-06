@@ -79,7 +79,7 @@ class PseudoCompTestCase(unittest.TestCase):
         top.add('comp', MuComp())
         nodes = set(top._depgraph.nodes())
         top.connect("mu", "comp.mu") # connect two vars with same units but diff unit strings
-        self.assertEqual(set(), set(top._depgraph.nodes())-nodes)
+        self.assertEqual(set(['comp.mu', 'mu']), set(top._depgraph.nodes())-nodes)
 
     def test_basic_nounits(self):
         top = _simple_model(units=False)

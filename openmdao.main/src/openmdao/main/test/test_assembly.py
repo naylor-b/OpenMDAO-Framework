@@ -976,65 +976,64 @@ class AssemblyTestCase2(unittest.TestCase):
 
     def test_cleanup(self):
         top = self.top
-        clean_edges = set(top._depgraph.edges())
 
         # first, a no units connection
         top.connect('C1.d', 'C2.b')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges,
-                         set([('C1.d', 'C2.b')]))
+        self.assertEqual(set(top._depgraph.edges()),
+                         set([('C1.d', 'C2.b'), ('C1', 'C1.d'), ('C2.b', 'C2')]))
 
         top.disconnect('C1')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges, set())
+        self.assertEqual(set(top._depgraph.edges()), set())
 
         # now a connection between two edges that have different aliases for the same unit
         # (should result in no pseudocomps being created)
         top.connect('C1.kout', 'C2.kin')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges,
-                         set([('C1.kout', 'C2.kin')]))
+        self.assertEqual(set(top._depgraph.edges()),
+                         set([('C2.kin', 'C2'), ('C1.kout', 'C2.kin'), ('C1', 'C1.kout')]))
 
         top.disconnect('C1')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges, set())
+        self.assertEqual(set(top._depgraph.edges()), set())
 
         # no units but a multi-comp source expression
         top.connect('C1.d+C2.d', 'C3.b')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges,
-                         set([('_pseudo_0.out0', 'C3.b'),
-                              ('C1.d', '_pseudo_0.in0'),
+        self.assertEqual(set(top._depgraph.edges()),
+                         set([('_pseudo_0.out0', 'C3.b'),('C3.b', 'C3'),
+                              ('C1.d', '_pseudo_0.in0'),('C2', 'C2.d'), ('C1', 'C1.d'),
                               ('C2.d', '_pseudo_0.in1')]+pseudo_edges(0, 2)))
 
         # disconnecting one source comp from a mult-comp source expression
         top.disconnect('C1')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges, set())
+        self.assertEqual(set(top._depgraph.edges()), set())
 
         # replace the multi-comp connection (makes a new pseudocomp)
         top.connect('C1.d+C2.d', 'C3.b')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges,
+        self.assertEqual(set(top._depgraph.edges()),
                          set([('_pseudo_1.out0', 'C3.b'),
-                              ('C1.d', '_pseudo_1.in0'),
-                              ('C2.d', '_pseudo_1.in1')]+pseudo_edges(1, 2)))
+                              ('C1.d', '_pseudo_1.in0'),('C2', 'C2.d'), ('C1', 'C1.d'),
+                              ('C2.d', '_pseudo_1.in1'), ('C3.b', 'C3')]+pseudo_edges(1, 2)))
 
         # disconnecting dest comp from a mult-comp source expression
         top.disconnect('C3')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges, set())
+        self.assertEqual(set(top._depgraph.edges()), set())
 
         # units conversion connection
         top.connect('C1.c', 'C3.a')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges,
-                         set([('C1.c', '_pseudo_2.in0'),
+        self.assertEqual(set(top._depgraph.edges()),
+                         set([('C1.c', '_pseudo_2.in0'),('C3.a', 'C3'),('C1', 'C1.c'),
                               ('_pseudo_2.out0', 'C3.a')]+pseudo_edges(2, 1)))
 
         # disconnect a units conversion connection by disconnecting a comp
         top.disconnect('C1')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges, set())
+        self.assertEqual(set(top._depgraph.edges()), set())
 
         # units conversion connection
         top.connect('C1.c', 'C3.a')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges,
-                         set([('C1.c', '_pseudo_3.in0'),
+        self.assertEqual(set(top._depgraph.edges()),
+                         set([('C1.c', '_pseudo_3.in0'),('C3.a', 'C3'),('C1', 'C1.c'),
                               ('_pseudo_3.out0', 'C3.a')]+pseudo_edges(3, 1)))
 
         top.disconnect('C1.c', 'C3.a')
-        self.assertEqual(set(top._depgraph.edges()) - clean_edges, set())
+        self.assertEqual(set(top._depgraph.edges()), set())
 
 if __name__ == "__main__":
     unittest.main()

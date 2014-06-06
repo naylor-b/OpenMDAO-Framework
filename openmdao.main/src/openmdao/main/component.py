@@ -630,7 +630,7 @@ class Component(Container):
         self.config_changed()
 
         if trait.iotype and self.parent:
-            self.parent.child_config_changed(self, removing=False)
+            self.parent.child_config_changed(self)#, removing=False)
 
     def _set_input_callback(self, name, remove=False):
 
@@ -1401,8 +1401,8 @@ class Component(Container):
             connected_inputs = []
             connected_outputs = []
         else:
-            connected_inputs = self.parent._depgraph.list_inputs(self.name, connected=True)
-            connected_outputs = self.parent._depgraph.list_outputs(self.name, connected=True)
+            connected_inputs = self.parent._depgraph.list_inputs(self.name)
+            connected_outputs = self.parent._depgraph.list_outputs(self.name)
 
         # Additionally, we need to know if anything is connected to a
         # parameter, objective, response, or constraint.

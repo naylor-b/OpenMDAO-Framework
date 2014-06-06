@@ -66,13 +66,10 @@ def unique(seq):
 #   driver  means it's a Driver node
 #   iotype  is present in var and subvar nodes and indicates i/o direction
 #   boundary means it's a boundary variable node
-#   fake    used to designate subvar nodes that are essentially metadata placeholders and
-#           are not really part of the dataflow
 #
 # EDGES:
 #   conn    means that the edge is a connection that was specified
 #           by calling connect()
-#   fake    edge is artificial and doesn't represent a real data connection
 
 
 # NODE selectors
@@ -130,9 +127,6 @@ def is_subvar_node(graph, node):
     e.g., an array index -   comp_1.x[2]
     """
     return 'basevar' in graph.node.get(node, '')
-
-def is_fake_node(graph, node):
-    return 'fake' in graph.node.get(node, '')
 
 def is_var_node_with_solution_bounds(graph, node):
     """Returns True if this variable node stores metadata
@@ -202,7 +196,7 @@ class DependencyGraph(nx.DiGraph):
         self._allow_config_changed = True
         self.config_changed()
 
-    def base_var(self, node):
+    def base_var(self, node, scope=None):
         """Returns the name of the variable node that is the 'base' for
         the given node name.  For example, for the node A.b[4], the
         base variable is A.b.  For the node d.x.y, the base variable
@@ -219,6 +213,8 @@ class DependencyGraph(nx.DiGraph):
 
         base = parts[0]
         if base in self and 'var' in self.node[base]:
+            return base
+        elif hasattr(scope, base) and not IComponent.providedBy(getattr(scope, base)):
             return base
 
         return '.'.join(parts[:2])
@@ -281,9 +277,9 @@ class DependencyGraph(nx.DiGraph):
             self._indegs = {}
             self._dstvars = {}
 
-    def child_config_changed(self, child, adding=True, removing=True):
+    def child_config_changed(self, child):#, adding=True, removing=True):
         """A child has changed its input lists and/or output lists,
-        so we need to update the graph.
+        so we may need to update the graph.
         """
         cname = child.name
         old_ins  = set(self.list_inputs(cname))
@@ -308,37 +304,37 @@ class DependencyGraph(nx.DiGraph):
             new_states = set()
             new_resids = set()
 
-        if adding:
-            added_ins = new_ins - old_ins
-            added_outs = new_outs - old_outs
-            added_states = new_states - old_states
-            added_resids = new_resids - old_resids
+        # if adding:
+        #     added_ins = new_ins - old_ins
+        #     added_outs = new_outs - old_outs
+        #     added_states = new_states - old_states
+        #     added_resids = new_resids - old_resids
 
-            # add new inputs/outputs/states/residuals to the graph
-            self.add_nodes_from(added_ins,    var=True, iotype='in')
-            self.add_nodes_from(added_outs,   var=True, iotype='out')
-            self.add_nodes_from(added_states, var=True, iotype='state')
-            self.add_nodes_from(added_resids, var=True, iotype='residual')
+        #     # add new inputs/outputs/states/residuals to the graph
+        #     self.add_nodes_from(added_ins,    var=True, iotype='in')
+        #     self.add_nodes_from(added_outs,   var=True, iotype='out')
+        #     self.add_nodes_from(added_states, var=True, iotype='state')
+        #     self.add_nodes_from(added_resids, var=True, iotype='residual')
 
-            # add edges from the variables to their parent component
-            self.add_edges_from([(v,cname) for v in chain(added_ins, added_states)])
-            self.add_edges_from([(cname,v) for v in chain(added_outs, added_states,
-                                                          added_resids)])
+        #     # add edges from the variables to their parent component
+        #     self.add_edges_from([(v,cname) for v in chain(added_ins, added_states)])
+        #     self.add_edges_from([(cname,v) for v in chain(added_outs, added_states,
+        #                                                   added_resids)])
 
-            self._update_graph_metadata(child, cname,
-                                        chain([s.split('.',1)[1] for s in added_ins],
-                                              [s.split('.',1)[1] for s in added_outs]))
+        #     self._update_graph_metadata(child, cname,
+        #                                 chain([s.split('.',1)[1] for s in added_ins],
+        #                                       [s.split('.',1)[1] for s in added_outs]))
 
-        if removing:
-            rem_ins = old_ins - new_ins
-            rem_outs = old_outs - new_outs
-            rem_states = old_states - new_states
-            rem_resids = old_resids - new_resids
+        #if removing:
+        rem_ins = old_ins - new_ins
+        rem_outs = old_outs - new_outs
+        rem_states = old_states - new_states
+        rem_resids = old_resids - new_resids
 
-            # for removed inputs/outputs/states/residuals, may need to
-            # remove connections and subvars
-            for n in chain(rem_ins, rem_outs, rem_states, rem_resids):
-                self.remove(n)
+        # for removed inputs/outputs/states/residuals, may need to
+        # remove connections and subvars
+        for n in chain(rem_ins, rem_outs, rem_states, rem_resids):
+            self.remove(n)
 
     def add_component(self, cname, obj, **kwargs):
         """Create nodes in the graph for the component and all of
@@ -358,66 +354,63 @@ class DependencyGraph(nx.DiGraph):
         kwargs['comp'] = True
         self.add_node(cname, **kwargs)
 
-        inputs  = ['.'.join((cname, v)) for v in obj.list_inputs()]
-        outputs = ['.'.join((cname, v)) for v in obj.list_outputs()]
+    #     inputs  = ['.'.join((cname, v)) for v in obj.list_inputs()]
+    #     outputs = ['.'.join((cname, v)) for v in obj.list_outputs()]
 
-        self.add_nodes_from(inputs, var=True, iotype='in')
-        self.add_nodes_from(outputs, var=True, iotype='out')
+    #     self.add_nodes_from(inputs, var=True, iotype='in')
+    #     self.add_nodes_from(outputs, var=True, iotype='out')
 
-        self.add_edges_from([(v, cname) for v in inputs])
-        self.add_edges_from([(cname, v) for v in outputs])
+    #     self.add_edges_from([(v, cname) for v in inputs])
+    #     self.add_edges_from([(cname, v) for v in outputs])
 
-        if has_interface(obj, IImplicitComponent):
-            states = ['.'.join((cname, v)) for v in obj.list_states()]
-            resids = ['.'.join((cname, v)) for v in obj.list_residuals()]
-            self.add_nodes_from(states, var=True, iotype='state')
-            self.add_nodes_from(resids, var=True, iotype='residual')
+    #     if has_interface(obj, IImplicitComponent):
+    #         states = ['.'.join((cname, v)) for v in obj.list_states()]
+    #         resids = ['.'.join((cname, v)) for v in obj.list_residuals()]
+    #         self.add_nodes_from(states, var=True, iotype='state')
+    #         self.add_nodes_from(resids, var=True, iotype='residual')
 
-            self.add_edges_from([(cname, v) for v in chain(states, resids)])
-            self.add_edges_from([(v, cname) for v in states])
+    #         self.add_edges_from([(cname, v) for v in chain(states, resids)])
+    #         self.add_edges_from([(v, cname) for v in states])
 
-        self._update_graph_metadata(obj, cname,
-                                    chain(obj.list_inputs(), obj.list_outputs()))
+    #     self._update_graph_metadata(obj, cname,
+    #                                 chain(obj.list_inputs(), obj.list_outputs()))
 
-    def _update_graph_metadata(self, obj, cname, names):
+    def _update_graph_metadata(self, obj, names):
         for vname in names:
             if not hasattr(obj, 'get_metadata'):
                 continue
 
-            if cname:
-                data = self.node['.'.join((cname, vname))]
-            else:
-                data = self.node[vname]
+            data = self.node[vname]
             meta = obj.get_metadata(vname)
             for mname in _metasrch:
                 if mname in meta:
                     data[mname] = meta[mname]
 
-            val = getattr(obj, vname, _missing)
-            if val is not _missing and not is_differentiable_val(val):
+            val = obj.get(vname)#, _missing)
+            if not is_differentiable_val(val): #val is not _missing and 
                 data['differentiable'] = False
 
-    def add_boundary_var(self, obj, name, **kwargs):
-        """Add a boundary variable, i.e., one not associated
-        with any component in the graph.
-        """
+    # def add_boundary_var(self, obj, name, **kwargs):
+    #     """Add a boundary variable, i.e., one not associated
+    #     with any component in the graph.
+    #     """
 
-        if name in self:
-            raise RuntimeError("'%s' is already in the graph." % name)
-        if _is_expr(name):
-            raise RuntimeError("can't add expression '%s'. as a Variable node."
-                               % name)
-        if '.' in name or '[' in name:
-            raise RuntimeError("'%s' is not a valid boundary variable name."
-                               % name)
-        if 'iotype' not in kwargs:
-            raise RuntimeError("variable '%s' can't be added because its iotype was not specified." % name)
+    #     if name in self:
+    #         raise RuntimeError("'%s' is already in the graph." % name)
+    #     if _is_expr(name):
+    #         raise RuntimeError("can't add expression '%s'. as a Variable node."
+    #                            % name)
+    #     if '.' in name or '[' in name:
+    #         raise RuntimeError("'%s' is not a valid boundary variable name."
+    #                            % name)
+    #     if 'iotype' not in kwargs:
+    #         raise RuntimeError("variable '%s' can't be added because its iotype was not specified." % name)
 
-        kwargs['var'] = True
-        kwargs['boundary'] = True
-        self.add_node(name, **kwargs)
+    #     kwargs['var'] = True
+    #     kwargs['boundary'] = True
+    #     self.add_node(name, **kwargs)
 
-        self._update_graph_metadata(obj, '', (name,))
+    #     self._update_graph_metadata(obj, '', (name,))
 
     def remove(self, name):
         """Remove the named node and all nodes prefixed by the
@@ -471,64 +464,121 @@ class DependencyGraph(nx.DiGraph):
         and another edge from B.c.x to base variable B.c.
         """
 
-        base_src  = self.base_var(srcpath)
-        base_dest = self.base_var(destpath)
+        if srcpath not in self:
+            self.add_var(srcpath, scope)
 
-        for v in [base_src, base_dest]:
-            if v not in self:
-                raise RuntimeError("Can't find variable '%s' in graph." % v)
-            elif not is_var_node(self, v):
-                raise RuntimeError("'%s' is not a variable node" % v)
+        if destpath not in self:
+            self.add_var(destpath, scope)
+            
+        #base_src  = self.base_var(srcpath)
+        #base_dest = self.base_var(destpath)
 
-        # path is a list of tuples of the form (var, basevar)
-        path = [(base_src, base_src)]
+        #for v in [base_src, base_dest]:
+            #if v not in self:
+                #raise RuntimeError("Can't find variable '%s' in graph." % v)
+            #elif not is_var_node(self, v):
+                #raise RuntimeError("'%s' is not a variable node" % v)
 
-        if srcpath != base_src:  # srcpath is a subvar
+        ## path is a list of tuples of the form (var, basevar)
+        #path = [(base_src, base_src)]
 
-            path.append((srcpath, base_src))
+        #if srcpath != base_src:  # srcpath is a subvar
+            #path.append((srcpath, base_src))
 
-        if destpath != base_dest:  # destpath is a subvar
-            path.append((destpath, base_dest))
+        #if destpath != base_dest:  # destpath is a subvar
+            #path.append((destpath, base_dest))
 
-        path.append((base_dest, base_dest))
+        #path.append((base_dest, base_dest))
 
         if check:
             self.check_connect(srcpath, destpath)
 
-        for i in range(len(path)):
-            dest, base = path[i]
-            if dest not in self:  # create a new subvar if it's not already there
-                self.add_node(dest, basevar=base)
-            if i > 0:
-                src = path[i-1][0]
-                try:
-                    self[src][dest]
-                except KeyError:
-                    self.add_edge(src, dest)
+        #for i in range(len(path)):
+            #dest, base = path[i]
+            #if dest not in self:  # create a new subvar if it's not already there
+                #self.add_node(dest, basevar=base)
+            #if i > 0:
+                #src = path[i-1][0]
+                #try:
+                    #self[src][dest]
+                #except KeyError:
+                    #self.add_edge(src, dest)
+                    
+        self.add_edge(srcpath, destpath, conn=True)
 
-        # mark the actual connection edge to distinguish it
-        # from other edges (for list_connections, etc.)
-        self.edge[srcpath][destpath]['conn'] = True
+        ## mark the actual connection edge to distinguish it
+        ## from other edges (for list_connections, etc.)
+        #self.edge[srcpath][destpath]['conn'] = True
 
         # create expression objects to handle setting of
         # array indces, etc.
-        sexpr = ConnectedExprEvaluator(srcpath, scope=scope, getter='get_attr')
-        dexpr = ConnectedExprEvaluator(destpath, scope=scope, getter='get_attr', is_dest=True)
+        sexpr = ConnectedExprEvaluator(srcpath, scope=scope, 
+                                       getter='get_attr')
+        dexpr = ConnectedExprEvaluator(destpath, scope=scope, 
+                                       getter='get_attr', is_dest=True)
 
         self.edge[srcpath][destpath]['sexpr'] = sexpr
         self.edge[srcpath][destpath]['dexpr'] = dexpr
 
-    def add_subvar(self, subvar):
+    def add_var(self, name, scope):
+        """Adds the given base variable and/or subvar 
+        to the graph if necessary.
+        """
+        if name in self:
+            return name
+
+        base = self.base_var(name, scope=scope)
+        if base not in self:
+            self.add_basevar(base, scope)
+
+        if base != name:
+            if name not in self:
+                self.add_subvar(name, scope=scope)
+
+        return name
+
+    def add_basevar(self, name, scope):
+        parts = name.split('.', 1)
+        if name.startswith('@'):
+            self.add_node(name)
+            return
+        
+        obj = getattr(scope, parts[0])
+
+        if not IComponent.providedBy(obj):
+            obj = scope
+
+        iotype = scope.get_metadata(name).get('iotype')
+        if iotype:
+            self.add_node(name, iotype=iotype, var=True)
+        else:
+            raise RuntimeError("iotype is not set for '%s'" % name)
+
+        if obj is scope or '.' not in name: # boundary var
+            self.node[name]['boundary'] = True
+        else: # component var
+            # if name is a component variable, connect it to its
+            # parent component.
+            if iotype == 'in':
+                self.add_edge(name, parts[0])
+            elif iotype in ['out', 'residual']:
+                self.add_edge(parts[0], name)
+            elif iotype == 'state':
+                self.add_edge(name, parts[0])
+                self.add_edge(parts[0], name)
+
+        self._update_graph_metadata(scope, (name,))
+
+    def add_subvar(self, subvar, scope=None):
         """ Adds a subvar node for a model input. This node is used to
         represent parameters that are array slices, mainly for metadata
         storage and for defining edge iterators, but not for workflow
-        execution. Subvars created using this function will be labeled
-        as 'fake' in their metadata.
+        execution. 
         """
-        base = self.base_var(subvar)
+        base = self.base_var(subvar, scope=scope)
         if base not in self:
             raise RuntimeError("can't find basevar '%s' in graph" % base)
-        self.add_node(subvar, basevar=base, fake=True)
+        self.add_node(subvar, basevar=base)
         if is_boundary_node(self, base):
             if is_input_node(self, base):
                 self.add_edge(base, subvar)
@@ -553,7 +603,7 @@ class DependencyGraph(nx.DiGraph):
                 # fact that we're marking ALL of its downstream edges to
                 # remove means that ultimately the subvar node will
                 # be removed because it will be 'dangling'
-                edges = self.successors(srcpath)
+                edges = self.edges(srcpath)
 
             elif is_boundary_node(self, srcpath):
                 if is_input_node(self, srcpath):
@@ -570,12 +620,30 @@ class DependencyGraph(nx.DiGraph):
 
         self.remove_edges_from(edges)
 
+        data = self.node
         # now clean up dangling subvars
         for edge in edges:
             for node in edge:
-                if is_subvar_node(self, node) and not is_fake_node(self, node):
+                if is_subvar_node(self, node):
                     if self.in_degree(node) < 1 or self.out_degree(node) < 1:
                         self.remove_node(node)
+                        
+        # clean up dangling basevars
+        for edge in edges:
+            for node in edge:
+                if is_var_node(self, node):
+                    iotype = data[node].get('iotype')
+                    boundary = data[node].get('boundary')
+                    if iotype in ['in', 'state']:
+                        if boundary and self.out_degree(node) < 1:
+                            self.remove_node(node)
+                        elif not boundary and self.in_degree(node) < 1:
+                            self.remove_node(node)
+                    elif iotype in ['out', 'residual']:
+                        if boundary and self.in_degree(node) < 1:
+                            self.remove_node(node)
+                        elif not boundary and self.out_degree(node) < 1:
+                            self.remove_node(node)
 
     def get_directional_interior_edges(self, comp1, comp2):
         """ Behaves like get_interior_edges, except that it only
@@ -642,6 +710,9 @@ class DependencyGraph(nx.DiGraph):
         """
         ret = self._chvars.get((node, direction))
         if ret is None:
+            if node not in self:
+                return []
+            
             bunch = set()
             ndot = node+'.'
             nbrack = node+'['
@@ -755,18 +826,11 @@ class DependencyGraph(nx.DiGraph):
         self._bndryouts[connected] = outs
         return outs[:]
 
-    def list_inputs(self, cname, connected=None):
+    def list_inputs(self, cname):
         """Return a list of names of input nodes to a component.
-        If connected is True, return only connected inputs.
         """
         if cname in self:
-            if connected:
-                return [n for n in self.pred[cname] if self.in_degree(n)]
-            elif connected is False:
-                return [n for n in self.pred[cname]
-                                                if self.in_degree(n)==0]
-            else:
-                return self.pred[cname].keys()
+            return self.pred[cname].keys()
         else:
             return []
 
@@ -849,6 +913,9 @@ class DependencyGraph(nx.DiGraph):
         """
         conns = []
 
+        if path not in self:
+            return conns
+        
         if direction != 'in':  # get 'out' connections
             for u,v in self.var_edge_iter(path):
                 if is_connection(self, u, v):
@@ -1035,6 +1102,14 @@ class DependencyGraph(nx.DiGraph):
                          if v not in convars and is_var_node(self,v) 
                                              and not is_param_node(self, v)]
         self.remove_nodes_from(to_remove)
+        
+    @property
+    def node(self):
+        return self.__dict__['node']
+    
+    @node.setter
+    def node(self, value):
+        self.__dict__['node'] = value
 
 
 def find_related_pseudos(depgraph, nodes):
@@ -1096,9 +1171,10 @@ def find_all_connecting(graph, start, end):
 
     return fwdset.intersection(backset)
 
-def _dfs_connections(G, source, visited, reverse=False):
-    """Produce connections in a depth-first-search starting at source."""
-    # Slightly modified version of the networkx function dfs_edges
+def _dfs_edges(G, source, visited, reverse=False):
+    """Produce edges in a depth-first-search starting at source."""
+    # Slightly modified version of the networkx function dfs_edges, allowing
+    # the same visited set to be used across multiple calls
 
     if reverse:
         neighbors = G.predecessors_iter
@@ -1134,13 +1210,18 @@ def _get_inner_edges(G, srcs, dests):
         Ending var or subvar nodes
 
     """
+
     fwdset = set()
     backset = set()
     for node in dests:
-        backset.update(_dfs_connections(G, node, visited=backset, reverse=True))
+        if node not in G:
+            node = node.split('.', 1)[0]
+        backset.update(_dfs_edges(G, node, visited=backset, reverse=True))
 
     for node in srcs:
-        fwdset.update(_dfs_connections(G, node, visited=fwdset))
+        if node not in G:
+            node = node.split('.', 1)[0]
+        fwdset.update(_dfs_edges(G, node, visited=fwdset))
 
     return fwdset.intersection(backset)
 
@@ -1400,18 +1481,18 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
     for i, varnames in enumerate(inputs):
         iname = '@in%d' % i
         inames.append(iname)
-        graph.add_node(iname, var=True, iotype='in')
+        graph.add_var(iname, scope)
         for varname in flatten_list_of_iters(varnames):
             base = graph.base_var(varname)
             relevant.add(base) # keep basevars around
             subvars = graph._all_child_vars(base)
             # does base have any full basevar connections?
-            fulls = set(graph.successors(base)) - set(subvars)
-            if varname not in graph: # should only happen for a subvar
-                graph.add_node(varname, basevar=base, iotype='in')
+            if varname not in graph:
+                graph.add_var(varname, scope)
 
             graph.add_edge(iname, varname, conn=True)
-
+            
+            fulls = set(graph.successors(base)) - set(subvars)
             if varname in subvars:
                 # make sure this subvar is connected to its base in the direction we need
                 graph.add_edge(varname, base)
@@ -1427,7 +1508,7 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
                         if not is_comp_node(graph, dest):
                             dbase = graph.base_var(dest)
                             if sub not in graph:
-                                graph.add_node(sub, basevar=dbase, iotype='in')
+                                graph.add_var(sub, scope)
                                 graph.add_edge(sub, dbase)
                             graph.add_edge(iname, sub)
                 else: # it's a boundary var
@@ -1436,7 +1517,7 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
                         sub = dest+tail
                         dbase = graph.base_var(dest)
                         if sub not in graph:
-                            graph.add_node(sub, basevar=dbase, iotype='in')
+                            graph.add_var(sub, scope)
                             graph.add_edge(sub, dbase)
                         graph.add_edge(varname, sub, conn=True)
 
@@ -1449,8 +1530,7 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
         graph.add_node(oname, var=True, iotype='out')
         for varname in flatten_list_of_iters(varnames):
             if varname not in graph:
-                graph.add_node(varname, basevar=graph.base_var(varname),
-                               iotype='out')
+                graph.add_var(varname, scope)
             graph.connect(None, varname, oname, check=False)
 
     rep_drivers, xtra_ins, xtra_outs = \
@@ -1506,7 +1586,7 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
                 for src, dest in graph._var_connections(sub,
                                                         direction='out'):
                     newsub = sub.replace(vname, iname, 1)
-                    graph.add_subvar(newsub)
+                    graph.add_var(newsub, scope)
                     graph.add_edge(newsub, dest, conn=True)
                     graph.remove_edge(src, dest)
 
@@ -1525,13 +1605,13 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
                             if graph.base_var(s) != base_dest:
                                 newdest = dest.replace(base_dest, s, 1)
                                 if newdest not in graph:
-                                    graph.add_subvar(newdest)
+                                    graph.add_var(newdest, scope)
                                 graph.add_edge(src, newdest, conn=1)
                         newsrc = src
                     else:
                         newsrc = dest.replace(base_dest, graph.base_var(src), 1)
                     if newsrc not in graph:
-                        graph.add_subvar(newsrc)
+                        graph.add_var(newsrc, scope)
                 for s, d in graph.edges_iter(dest):
                     graph.add_edge(newsrc, d, attr_dict=graph.edge[s][d])
                     to_remove.add((s,d))
@@ -1552,7 +1632,7 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
                 else: # src is a subvar
                     newsrc = src.replace(base_src, graph.base_var(pred), 1)
                     if newsrc not in graph:
-                        graph.add_subvar(newsrc)
+                        graph.add_var(newsrc, scope)
                 graph.add_edge(newsrc, dest, conn=True)
                 to_remove.add((src, dest))
             continue
@@ -1589,7 +1669,7 @@ def mod_for_derivs(graph, inputs, outputs, wflow, full_fd=False, group_nondiff=T
                         continue
                     new_target = sub.replace(src, dest, 1)
                     if new_target not in graph:
-                        graph.add_subvar(new_target)
+                        graph.add_var(new_target, scope)
                         added_edge = True
 
                     if dest in graph.edge[src]:

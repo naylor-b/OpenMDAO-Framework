@@ -121,11 +121,17 @@ class PseudoComponent(object):
 
         for name, meta in srcexpr.get_metadata():
             for rname in rvarmap[name]:
-                self._meta[varmap[rname]] = meta
+                self._meta[varmap[rname]] = meta.copy()
 
         for name, meta in destexpr.get_metadata():
             for rname in rvarmap[name]:
-                self._meta[varmap[rname]] = meta
+                self._meta[varmap[rname]] = meta.copy()
+                
+        # fix up iotype metadata
+        for inp in self._inputs:
+            self._meta[inp]['iotype'] = 'in'
+            
+        self._meta['out0']['iotype'] = 'out'
 
         if translate:
             xformed_src = transform_expression(srcexpr.text, self._inmap)

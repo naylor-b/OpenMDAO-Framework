@@ -1,4 +1,5 @@
 import unittest
+from itertools import chain
 
 import networkx as nx
 from openmdao.main.depgraph import DependencyGraph, is_nested_node, \
@@ -7,6 +8,7 @@ from openmdao.main.depgraph import DependencyGraph, is_nested_node, \
 from openmdao.util.graph import edges_to_dict, nodes_matching_all, \
                                 nodes_matching_some, edges_matching_all, \
                                 edges_matching_some
+from openmdao.util.nameutil import partition_names_by_comp
 from openmdao.main.interfaces import implements, IImplicitComponent
 
 def fullpaths(cname, names):
@@ -47,6 +49,9 @@ class DumbClass(object):
         self._states = states[:]
         self._resids = resids[:]
         
+        for vname in chain(inputs, outputs, states, resids):
+            setattr(self, vname, 0.0)
+        
     def get_pathname(self):
         return self.name
 
@@ -73,7 +78,27 @@ class DumbClass(object):
     
     def list_deriv_vars(self):
         return self._inputs, self._outputs
-
+    
+    def get_metadata(self, name, mname=None):
+        parts = name.split('.',1)
+        if len(parts) > 1:
+            return getattr(self, parts[0]).get_metadata(parts[1], mname)
+            
+        meta = {}
+        if name in self._inputs:
+            meta['iotype'] = 'in'
+        elif name in self._outputs:
+            meta['iotype'] = 'out'
+        elif name in self._states:
+            meta['iotype'] = 'state'
+        elif name in self._resids:
+            meta['iotype'] = 'residual'
+            
+        if mname is None:
+            return meta
+        else:
+            return meta.get(name)
+            
 
 def _make_xgraph():
     """Make an X shaped graph
@@ -123,7 +148,7 @@ def _make_graph(comps=(), variables=(), connections=(), inputs=('a','b'), output
         setattr(scope, comp.name, comp)
 
     for v, iotype in variables:
-        dep.add_boundary_var(scope, v, iotype=iotype)
+        dep.add_var(v, scope)
 
     for src, dest in connections:
         dep.connect(scope, src, dest)
@@ -152,6 +177,17 @@ class DepGraphTestCase(unittest.TestCase):
         self.comps = ['A','B','C','D']
         self.bvariables = [('a','in'), ('b','in'),
                           ('c','out'), ('d','out')]
+        
+        self.expected_edges = [
+            ('A','A.c'),('A.c','A.c[2]'),('A','A.d'),('A.d','A.d.z'),
+            ('B','B.c'),('B','B.d'),
+            ('C','C.c'),
+            ('D','D.d'),
+            ('A.a','A'),('A.b','A'),
+            ('B.a.x.y','B.a'),('B.a','B'),('B.b[4]','B.b'),('B.b','B'),
+            ('C.a','C'),('C.b','C'),
+        ]+self.boundary_conns
+        
         self.dep, self.scope = _make_graph(self.comps,
                                            self.bvariables,
                                            self.conns +
@@ -159,18 +195,11 @@ class DepGraphTestCase(unittest.TestCase):
                                            [])
         
     def test_add(self):
-        for name in self.comps:
-            self.assertTrue(name in self.dep)
-            comp = self.get_comp(name)
-            for inp in fullpaths(comp.name, comp.list_inputs()):
-                self.assertTrue(inp in self.dep)
-                # make sure edge exists
-                self.dep[inp][name]
-            for out in fullpaths(comp.name, comp.list_outputs()):
-                self.assertTrue(out in self.dep)
-                # make sure edge exists
-                self.dep[name][out]
-        
+        for u,v in self.expected_edges:
+            self.assertTrue(u in self.dep)
+            self.assertTrue(v in self.dep)
+            self.dep[u][v]
+            
     def test_remove(self):
         comp = self.get_comp('B')
         self.dep.remove('B')
@@ -615,28 +644,28 @@ class DepGraphTestCase(unittest.TestCase):
         # component input
         subvar = 'B.b[1]'
         self.assertTrue(subvar not in dep.node)
-        dep.add_subvar(subvar)
+        dep.add_var(subvar, scope)
         self.assertTrue(subvar in dep.node)
         self.assertTrue('B.b' in dep.successors(subvar))
         
         # boundary input
         subvar = 'b[1]'
         self.assertTrue(subvar not in dep.node)
-        dep.add_subvar(subvar)
+        dep.add_var(subvar, scope)
         self.assertTrue(subvar in dep.node)
         self.assertTrue('b' in dep.predecessors(subvar))
         
         # component output
         subvar = 'B.c[1]'
         self.assertTrue(subvar not in dep.node)
-        dep.add_subvar(subvar)
+        dep.add_var(subvar, scope)
         self.assertTrue(subvar in dep.node)
         self.assertTrue('B.c' in dep.predecessors(subvar))
         
         # boundary output
         subvar = 'c[1]'
         self.assertTrue(subvar not in dep.node)
-        dep.add_subvar(subvar)
+        dep.add_var(subvar, scope)
         self.assertTrue(subvar in dep.node)
         self.assertTrue('c' in dep.successors(subvar))
         
