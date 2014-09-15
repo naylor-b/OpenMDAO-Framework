@@ -19,6 +19,7 @@ from traits.trait_base import not_event
 from traits.api import Property
 
 from openmdao.main.container import Container
+from openmdao.main.derivatives import applyJ, applyJT
 from openmdao.main.interfaces import implements, obj_has_interface, \
                                      IAssembly, IComponent, IDriver, \
                                      IHasCouplingVars, IHasObjectives, \
@@ -37,10 +38,12 @@ from openmdao.main.datatypes.api import Bool, List, Str, Int, Slot, Dict, \
                                         FileRef, Enum
 from openmdao.main.publisher import Publisher
 from openmdao.main.vartree import VariableTree
+from openmdao.main.mpiwrap import MPI_info
 
 from openmdao.util.eggsaver import SAVE_CPICKLE
 from openmdao.util.eggobserver import EggObserver
 from openmdao.util.graph import list_deriv_vars
+#from openmdao.main.mpiwrap import mpiprint
 
 import openmdao.util.log as tracing
 
@@ -116,7 +119,6 @@ _iodict = {'out': 'output', 'in': 'input'}
 # this key in publish_vars indicates a subscriber to the Component attributes
 __attributes__ = '__attributes__'
 
-
 class Component(Container):
     """This is the base class for all objects containing Traits that are
     accessible to the OpenMDAO framework and are "runnable."
@@ -157,15 +159,16 @@ class Component(Container):
     def __init__(self):
         super(Component, self).__init__()
 
+        self.mpi = MPI_info()
+
         self._exec_state = None
         self._stop = False
-        self._call_check_config = True
+        self._new_config = True
 
         # cached configuration information
         self._input_names = None
         self._output_names = None
         self._container_names = None
-        self._expr_sources = None
 
         self._dir_stack = []
         self._dir_context = None
@@ -173,6 +176,10 @@ class Component(Container):
         # Flags and caching used by the derivatives calculation
         self.ffd_order = 0
         self._provideJ_bounds = None
+
+        self._case_id = ''
+
+        self._complex_step = False
 
         self._publish_vars = {}  # dict of varname to subscriber count
         self._case_uuid = ''
@@ -234,7 +241,6 @@ class Component(Container):
         state['_input_names'] = None
         state['_output_names'] = None
         state['_container_names'] = None
-        state['_expr_sources'] = None
 
         return state
 
@@ -259,7 +265,7 @@ class Component(Container):
                 obj = getattr(self, name)
                 if is_instance(obj, VariableTree):
                     if self.name:
-                        req.extend(['.'.join((self.name, n)) 
+                        req.extend(['.'.join((self.name, n))
                                      for n in obj.get_req_default(trait.required)])
                     else:
                         req.extend(obj.get_req_default(trait.required))
@@ -300,6 +306,12 @@ class Component(Container):
                 self.raise_exception("required method 'provideJ' is missing")
             if not hasattr(self, 'list_deriv_vars'):
                 self.raise_exception("required method 'list_deriv_vars' is missing")
+            if not hasattr(self, 'apply_deriv'):
+                self.raise_exception("method 'apply_deriv' must be also specified "
+                                     " if 'apply_derivT' is specified")
+            if not hasattr(self, 'apply_derivT'):
+                self.raise_exception("method 'apply_derivT' must be also specified "
+                                     " if 'apply_deriv' is specified")
 
         if hasattr(self, 'provideJ') and not hasattr(self, 'list_deriv_vars'):
             self.raise_exception("required method 'list_deriv_vars' is missing")
@@ -321,8 +333,6 @@ class Component(Container):
             if reqs:
                 self.raise_exception("required variables %s were"
                                      " not set" % reqs, RuntimeError)
-
-        self._call_check_config = False
 
     @rbac(('owner', 'user'))
     def cpath_updated(self):
@@ -380,17 +390,19 @@ class Component(Container):
             self._call_configure = False
 
     def _pre_execute(self):
-        """Prepares for execution by calling *cpath_updated()* and
-        *check_config()* if their "dirty" flags are set and by requesting that
-        the parent Assembly update this Component's invalid inputs.
+        """Prepares for execution by calling various initialization methods
+        if necessary.
 
         Overrides of this function must call this version.
         """
         if self._call_cpath_updated:
             self.cpath_updated()
 
-        if self._call_check_config:
+        if self._new_config:
             self.check_config()
+            if self.parent is None and has_interface(self, IAssembly):
+                self._setup()  # only call _setup from top level
+            self._new_config = False
 
     def execute(self):
         """Perform calculations or other actions, assuming that inputs
@@ -422,7 +434,7 @@ class Component(Container):
 
                 self.set(out_name, y)
 
-    def calc_derivatives(self, first=False, second=False, savebase=False,
+    def linearize(self, first=False, second=False, savebase=False,
                          required_inputs=None, required_outputs=None):
         """Prepare for Fake Finite Difference runs by calculating all needed
         derivatives, and saving the current state as the baseline if
@@ -490,6 +502,20 @@ class Component(Container):
                 self._ffd_outputs[name] = self.get(name)
 
         return J
+
+    def applyJ(self, system):
+        """ Wrapper for component derivative specification methods.
+        Forward Mode.
+        """
+        applyJ(system)
+
+
+    def applyJT(self, system):
+        """ Wrapper for component derivative specification methods.
+        Adjoint Mode.
+        """
+        applyJT(system)
+
 
     def _post_execute(self):
         """Update output variables and anything else needed after execution.
@@ -674,8 +700,7 @@ class Component(Container):
         self._input_names = None
         self._output_names = None
         self._container_names = None
-        self._expr_sources = None
-        self._call_check_config = True
+        self._new_config = True
         self._provideJ_bounds = None
 
     @rbac(('owner', 'user'))
@@ -1846,3 +1871,31 @@ class Component(Container):
                                               stream=stream, mode=mode,
                                               fd_form=fd_form, fd_step=fd_step,
                                               fd_step_type=fd_step_type)
+
+    @rbac(('owner', 'user'))
+    def get_req_cpus(self):
+        """Return requested_cpus"""
+        return self.mpi.requested_cpus
+
+    @rbac(('owner', 'user'))
+    def setup_systems(self):
+        return ()
+
+    @rbac(('owner', 'user'))
+    def get_full_nodeset(self):
+        """Return the node in the depgraph
+        belonging to this component.
+        """
+        return set((self.name,))
+
+    @rbac(('owner', 'user'))
+    def setup_graph(self, inputs=None, outputs=None):
+        pass
+
+    @rbac(('owner', 'user'))
+    def pre_setup(self):
+        pass
+
+    @rbac(('owner', 'user'))
+    def post_setup(self):
+        pass

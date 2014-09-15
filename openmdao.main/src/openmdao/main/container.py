@@ -7,7 +7,6 @@ import copy
 import pprint
 import socket
 import sys
-
 import weakref
 # the following is a monkey-patch to correct a problem with
 # copying/deepcopying weakrefs There is an issue in the python issue tracker
@@ -24,6 +23,8 @@ copy._deepcopy_dispatch[weakref.KeyedRef] = copy._deepcopy_atomic
 
 from zope.interface import Interface, implements
 
+from numpy import ndarray
+
 from traits.api import HasTraits, Missing, Python, \
                        push_exception_handler, TraitType, CTrait
 from traits.has_traits import FunctionType, _clone_trait, MetaHasTraits
@@ -37,7 +38,8 @@ from openmdao.main.datatypes.slot import Slot
 from openmdao.main.datatypes.vtree import VarTree
 from openmdao.main.expreval import ExprEvaluator
 from openmdao.main.interfaces import ICaseIterator, IResourceAllocator, \
-                                     IContainer, IParametricGeometry, IComponent
+                                     IContainer, IParametricGeometry, \
+                                     IComponent, IVariableTree
 from openmdao.main.index import get_indexed_value, deep_hasattr, \
                                 INDEX, ATTR, SLICE, _index_functs
 from openmdao.main.mp_support import ObjectManager, OpenMDAO_Proxy, \
@@ -45,10 +47,15 @@ from openmdao.main.mp_support import ObjectManager, OpenMDAO_Proxy, \
                                      has_interface
 from openmdao.main.rbac import rbac
 from openmdao.main.variable import Variable, is_legal_name, _missing
+from openmdao.main.array_helpers import flattened_value, get_val_and_index, \
+                                        get_index
+from openmdao.main.pseudocomp import PseudoComponent
+
 from openmdao.util.log import Logger, logger
 from openmdao.util import eggloader, eggsaver, eggobserver
 from openmdao.util.eggsaver import SAVE_CPICKLE
-
+from openmdao.util.typegroups import real_types, int_types
+from openmdao.main.mpiwrap import mpiprint
 
 _copydict = {
     'deep': copy.deepcopy,
@@ -57,6 +64,7 @@ _copydict = {
 
 _iodict = {'out': 'output', 'in': 'input'}
 
+__missing__ = object()
 
 def get_closest_proxy(start_scope, pathname):
     """Resolve down to the closest in-process parent object
@@ -439,8 +447,8 @@ class Container(SafeHasTraits):
             _check_bad_default(name, t)
             break  # just check the first arg in the list
 
-        if name in self._trait_metadata:
-            del self._trait_metadata[name]  # Invalidate.
+        if name in cls._trait_metadata:
+            del cls._trait_metadata[name]  # Invalidate.
 
         return super(Container, cls).add_class_trait(name, *trait)
 
@@ -513,14 +521,22 @@ class Container(SafeHasTraits):
             return obj.get_attr(restofpath, index)
 
         if index is None:
-            obj = getattr(self, path, Missing)
-            if obj is Missing:
-                return self._get_failed(path, index)
+            if '[' in path:
+                try:
+                    obj = get_val_and_index(self, path)[0]
+                except:
+                    return self._get_failed(path, index)
+                trait = self.get_trait(path.split('[',1)[0])
+            else:
+                obj = getattr(self, path, Missing)
+                if obj is Missing:
+                    return self._get_failed(path, index)
+                trait = self.get_trait(path)
 
-            trait = self.get_trait(path)
             if trait is None:
                 self.raise_exception("trait '%s' does not exist" %
                                      path, AttributeError)
+
             # copy value if 'copy' found in metadata
             if trait.copy:
                 if isinstance(obj, Container):
@@ -992,22 +1008,29 @@ class Container(SafeHasTraits):
         if '.' in path:
             childname, _, restofpath = path.partition('.')
             obj = getattr(self, childname, Missing)
-            if obj is Missing or not is_instance(obj, Container):
+            if obj is Missing or not is_instance(obj, (Container, PseudoComponent)):
                 return self._get_failed(path, index)
             return obj.get(restofpath, index)
 
         if index is None:
-            obj = getattr(self, path, Missing)
-            if obj is Missing:
-                if '[' in path or '(' in path:
-                    # caller has put indexing in the string instead of
-                    # using the indexing protocol
-                    expr = self._exprcache.get(path)
-                    if expr is None:
-                        expr = ExprEvaluator(path, scope=self)
-                        self._exprcache[path] = expr
-                    return expr.evaluate()
-                else:
+            if '[' in path:
+                try:
+                    return get_val_and_index(self, path)[0]
+                except:
+                    return self._get_failed(path, index)
+            elif '(' in path:
+                # caller is doing something funky and not using the
+                # indexing protocol, so just create/cache an expression
+                # and evaluate it (which will call this method again using
+                # the indexing protocol)
+                expr = self._exprcache.get(path)
+                if expr is None:
+                    expr = ExprEvaluator(path, scope=self)
+                    self._exprcache[path] = expr
+                return expr.evaluate()
+            else:
+                obj = getattr(self, path, Missing)
+                if obj is Missing:
                     return self._get_failed(path, index)
             return obj
         else:  # has an index
@@ -1021,6 +1044,53 @@ class Container(SafeHasTraits):
                     obj = obj[idx]
             return obj
 
+    @rbac(('owner', 'user'), proxy_types=[FileRef])
+    def get_flattened_value(self, path):
+        """Return the named value, which may include
+        an array index, as a flattened array of floats.  If
+        the value is not flattenable into an array of floats,
+        raise a TypeError.
+        """
+        childname, _, restofpath = path.partition('.')
+        if restofpath:
+            obj = getattr(self, childname, Missing)
+            if obj is Missing or not is_instance(obj, (Container, PseudoComponent)):
+                self.raise_exception("%s was not found" % path)
+            return obj.get_flattened_value(restofpath)
+        else:
+            val, idx = get_val_and_index(self, path)
+            return flattened_value(path, val)
+
+    @rbac(('owner', 'user'))
+    def set_flattened_value(self, path, value):
+        childname, _, restofpath = path.partition('.')
+        if restofpath:
+            obj = getattr(self, childname, Missing)
+            if obj is Missing or not is_instance(obj, (Container, PseudoComponent)):
+                self.raise_exception("%s not found" % path)
+            obj.set_flattened_value(restofpath, value)
+        else:
+            val = getattr(self, path.split('[',1)[0])
+            idx = get_index(path)
+            if isinstance(val, int_types): 
+                pass  # fall through to exception
+            if isinstance(val, real_types):
+                if idx is None:
+                    #mpiprint("SETTING %s.%s to %s" % (self.name,path, value))
+                    setattr(self, path, value[0])
+                    return
+                # else, fall through to error
+            elif isinstance(val, ndarray):
+                if idx is None:
+                    setattr(self, path, value.reshape(val.shape))
+                else:
+                    val[idx] = value
+                return
+            elif IVariableTree.providedBy(val):
+                raise NotImplementedError("no support for setting flattened values into vartrees")
+
+            self.raise_exception("Failed to set flattened value to variable %s" % path, TypeError)
+                
     def _set_failed(self, path, value, index=None, force=False):
         """If set() cannot locate the specified variable, raise an exception.
         Inherited classes can override this to locate the variable elsewhere
@@ -1072,7 +1142,25 @@ class Container(SafeHasTraits):
         elif index:  # array index specified
             self._index_set(path, value, index)
         else:
-            setattr(self, path, value)
+            if '[' in path or '(' in path:
+                # caller has put indexing in the string instead of
+                # using the indexing protocol.
+                # FIXME: this will make an extra call to set() from
+                #        ExprEvaluator.set()
+                expr = self._exprcache.get(path)
+                if expr is None:
+                    expr = ExprEvaluator(path, scope=self)
+                    self._exprcache[path] = expr
+                expr.set(value)
+            else:
+                if isinstance(value, ndarray):
+                    dest = getattr(self, path)
+                    if dest.size != value.size:
+                        setattr(self, path, value.copy())
+                    else:
+                        dest[:] = value
+                else:
+                    setattr(self, path, value)
 
     def _index_set(self, name, value, index):
         if len(index) == 1:
@@ -1080,14 +1168,6 @@ class Container(SafeHasTraits):
         else:
             obj = self.get(name, index[:-1])
         idx = index[-1]
-
-        try:
-            if isinstance(idx, tuple):
-                old = _index_functs[idx[0]](obj, idx)
-            else:
-                old = obj[idx]
-        except KeyError:
-            old = _missing
 
         if isinstance(idx, tuple):
             if idx[0] == INDEX:
@@ -1098,30 +1178,6 @@ class Container(SafeHasTraits):
                 obj.__setitem__(slice(idx[1][0], idx[1][1], idx[1][2]), value)
         else:
             obj[idx] = value
-
-        # setting of individual Array entries or sub attributes doesn't seem to
-        # trigger _input_trait_modified, so do it manually
-        # FIXME: if people register other callbacks on a trait, they won't
-        #        be called if we do it this way
-        eq = (old == value)
-        if not isinstance(eq, bool):
-            try:
-                eq = all(eq)
-            except TypeError:
-                pass
-
-        if not eq:
-            # need to find first item going up the tree that is a Component
-            item = self
-            path = name
-            full = name
-            while item:
-                if has_interface(item, IComponent):
-                    item._input_updated(path, fullpath=full)
-                    break
-                path = item.name
-                full = '.'.join((path, full))
-                item = item.parent
 
     def _add_path(self, msg):
         """Adds our pathname to the beginning of the given message."""
@@ -1476,6 +1532,8 @@ class Container(SafeHasTraits):
             If `trait` is not None, use that trait rather than building one.
         """
         self.raise_exception('build_trait()', NotImplementedError)
+
+
 
 # By default we always proxy Containers and FileRefs.
 CLASSES_TO_PROXY.append(Container)

@@ -78,12 +78,8 @@ class DrivenComponent(Component):
 class MyModel(Assembly):
     """ Use CaseIteratorDriver with DrivenComponent. """
 
-    def __init__(self, driver=None):
-        super(MyModel, self).__init__()
-        self.drv = driver or CaseIteratorDriver()
-
     def configure(self):
-        driver = self.add('driver', self.drv)
+        driver = self.add('driver', CaseIteratorDriver())
         self.add('driven', DrivenComponent())
         driver.workflow.add('driven')
         driver.add_parameter('driven.x')
@@ -318,33 +314,6 @@ class TestCase(unittest.TestCase):
         top = Assembly()
         top.add('generator', Generator())
         cid = top.add('cid', CaseIteratorDriver())
-        top.add('driven', DrivenComponent())
-        top.add('verifier', Verifier())
-
-        top.driver.workflow.add(('generator', 'cid', 'verifier'))
-        cid.workflow.add('driven')
-        cid.add_parameter('driven.x')
-        cid.add_parameter('driven.y')
-        cid.add_response('driven.rosen_suzuki')
-        cid.add_response('driven.sum_y')
-
-        top.connect('generator.x', 'cid.case_inputs.driven.x')
-        top.connect('generator.y', 'cid.case_inputs.driven.y')
-
-        top.connect('generator.x', 'verifier.x')
-        top.connect('generator.y', 'verifier.y')
-        top.connect('cid.case_outputs.driven.rosen_suzuki', 'verifier.rosen_suzuki')
-        top.connect('cid.case_outputs.driven.sum_y', 'verifier.sum_y')
-
-        top.run()
-
-    def test_simplecid(self):
-        logging.debug('')
-        logging.debug('test_simplecid')
-
-        top = Assembly()
-        top.add('generator', Generator())
-        cid = top.add('cid', SimpleCaseIterDriver())
         top.add('driven', DrivenComponent())
         top.add('verifier', Verifier())
 
@@ -609,7 +578,7 @@ class Rethore(unittest.TestCase):
         a = set_as_top(A_l())
         cid = a.parallel_driver
         cid.sequential = True
-        a.execute()
+        a.run()
         sequential = [(cid.case_inputs.c1.i[i], cid.case_outputs.c1.val[i])
                       for i in range(len(cid.case_inputs.c1.i))]
 
@@ -619,7 +588,7 @@ class Rethore(unittest.TestCase):
         a = set_as_top(A_l())
         cid = a.parallel_driver
         cid.sequential = False
-        a.execute()
+        a.run()
         concurrent = [(cid.case_inputs.c1.i[i], cid.case_outputs.c1.val[i])
                       for i in range(len(cid.case_inputs.c1.i))]
 
@@ -633,7 +602,7 @@ class Rethore(unittest.TestCase):
         a = set_as_top(A_vt())
         cid = a.parallel_driver
         cid.sequential = True
-        a.execute()
+        a.run()
         sequential = [(cid.case_inputs.c1.i[i], cid.case_outputs.c1.val[i])
                       for i in range(len(cid.case_inputs.c1.i))]
 
@@ -643,7 +612,7 @@ class Rethore(unittest.TestCase):
         a = set_as_top(A_vt())
         cid = a.parallel_driver
         cid.sequential = False
-        a.execute()
+        a.run()
         concurrent = [(cid.case_inputs.c1.i[i], cid.case_outputs.c1.val[i])
                       for i in range(len(cid.case_inputs.c1.i))]
 
@@ -935,11 +904,11 @@ class ParameterTarget(unittest.TestCase):
 
     def test_parameter_target(self):
         # Test that replacing a parameter target is handled.
-        a1 = PTAssembly()
+        a1 = set_as_top(PTAssembly())
         a1.run()
         self.assertEqual(a1.driver.case_outputs.c.o,
                          [0., 1., 4., 9., 16., 25., 36., 49., 64., 81.])
-        a2 = PTAssembly()
+        a2 = set_as_top(PTAssembly())
         a2.configure()
         a2.replace('c', PTReplacement())
         a2.run()

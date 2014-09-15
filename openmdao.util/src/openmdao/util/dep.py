@@ -12,7 +12,7 @@ import cPickle
 import networkx as nx
 
 from openmdao.util.fileutil import find_files, get_module_path, find_module
-from openmdao.util.log import logger
+#from openmdao.util.log import logger
 
 # This is a dict containing all of the entry point groups that OpenMDAO uses to
 # identify plugins, and their corresponding Interfaces.
@@ -334,7 +334,7 @@ class PythonSourceTreeAnalyser(object):
                 self.fileinfo[pyfile] = info
                 return info[0]
 
-        logger.info("analyzing %s", pyfile)
+        #logger.debug("analyzing %s", pyfile)
 
         myvisitor = PythonSourceFileAnalyser(pyfile, self)
         self.modinfo[get_module_path(pyfile)] = myvisitor

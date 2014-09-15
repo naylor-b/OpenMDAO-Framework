@@ -14,6 +14,8 @@ from openmdao.main.datatypes.str import Str
 from openmdao.main.datatypes.vtree import VarTree
 from openmdao.main.rbac import rbac
 from openmdao.main.mp_support import is_instance
+from openmdao.main.array_helpers import flattened_size
+
 
 
 class VariableTree(Container):
@@ -280,13 +282,13 @@ class VariableTree(Container):
         # Connection information found in parent comp's parent assy
         if not self.parent or not self.parent._parent or \
            isinstance(self.parent, VariableTree):
-            connected = []
+            boundary_vars = []
         else:
             graph = self.parent._parent._depgraph
             if self_io == 'in':
-                connected = graph.get_boundary_inputs(connected=True)
+                boundary_vars = graph.get_boundary_inputs()
             else:
-                connected = graph.get_boundary_outputs(connected=True)
+                boundary_vars = graph.get_boundary_outputs()
 
         variables = []
         for name in self.list_vars():
@@ -313,16 +315,17 @@ class VariableTree(Container):
                 attr['parent'] = parent
 
             attr['connected'] = ''
-            if name in connected:
-                connections = self.parent._depgraph.connections_to(name)
+            if name in boundary_vars:
+                connections = graph.connections_to(name)
 
-                if self_io == 'in':
-                    # there can be only one connection to an input
-                    attr['connected'] = str([src for src, dst in
-                                             connections])
-                else:
-                    attr['connected'] = str([dst for src, dst in
-                                             connections])
+                if connections:
+                    if self_io == 'in':
+                        # there can be only one connection to an input
+                        attr['connected'] = str([src for src, dst in
+                                                 connections])
+                    else:
+                        attr['connected'] = str([dst for src, dst in
+                                                 connections])
             variables.append(attr)
 
             # For variables trees only: recursively add the inputs and outputs
@@ -342,6 +345,36 @@ class VariableTree(Container):
 
         return attrs
 
+    def list_all_vars(self):
+        """Return a list of all variables in this VarTree (recursive)."""
+        vnames = []
+        for name, obj in self.__dict__.items():
+            if name.startswith('_'):
+                continue
+            if isinstance(obj, VariableTree):
+                vnames.extend(['.'.join((self.name,n)) for n in obj.list_all_vars()])
+            else:
+                vnames.append('.'.join((self.name, name)))
+        return vnames
+
+    def get_flattened_size(self):
+        """Return the size of a flattened float array containing
+        all values in the vartree that are flattenable to float
+        arrays.  Any values not flattenable to float arrays will
+        raise a NoFlatError. 
+        """
+        size = 0
+        for key in self.list_vars():
+            size += flattened_size(key, getattr(self, key), scope=self)
+        return size
+
+    def get_flattened_index(self, name):
+        """Return the slice within the flattened array of the 
+        current vartree that is occupied by the named 
+        subvar.
+        """
+        raise NotImplementedError('get_flattened_index not implemented for VarTrees yet')  # FIXME
+            
 
 # register a flattener for Cases
 from openmdao.main.case import flatteners, flatten_obj

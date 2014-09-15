@@ -20,7 +20,13 @@ class DumbVT3(VariableTree):
     a = Float(1., units='ft')
     b = Float(12., units='inch')
     data = File()
+    
+class DumbVT3arr(VariableTree):
 
+    a = Float(1., units='ft')
+    b = Float(12., units='inch')
+    arr = Array([1,2,3,4,5])
+    data = File()
 
 class DumbVT2(VariableTree):
 
@@ -28,7 +34,13 @@ class DumbVT2(VariableTree):
     y = Float(-2.)
     data = File()
     vt3 = VarTree(DumbVT3())
+    
+class DumbVT2arr(VariableTree):
 
+    x = Float(-1.)
+    y = Float(-2.)
+    data = File()
+    vt3 = VarTree(DumbVT3arr())
 
 class BadVT2(VariableTree):
 
@@ -44,6 +56,14 @@ class DumbVT(VariableTree):
     v2 = Float(2., desc='vv2')
     data = File()
     vt2 = VarTree(DumbVT2())
+    
+class DumbVTarr(VariableTree):
+
+    v1 = Float(1., desc='vv1')
+    v2 = Float(2., desc='vv2')
+    data = File()
+    vt2 = VarTree(DumbVT2arr())
+
 
 
 class SimpleComp(Component):
@@ -268,6 +288,13 @@ class NamespaceTestCase(unittest.TestCase):
         self.assertEqual(self.asm.scomp2.get_files('out')[0], None)
         self._check_files(self.asm.scomp1.get_files('in')[1:],
                           self.asm.scomp2.get_files('out')[1:])
+        
+    def test_list_all_vars(self):
+        self.assertEqual(set(self.asm.scomp1.cont_out.list_all_vars()),
+                         set(['cont_out.v1', 'cont_out.v2', 'cont_out.vt2.vt3.a', 
+                              'cont_out.vt2.vt3.b', 'cont_out.vt2.vt3.data', 
+                              'cont_out.vt2.data', 'cont_out.vt2.y', 'cont_out.vt2.x', 
+                              'cont_out.data']))
 
     def test_connect_subvar(self):
         self.asm.connect('scomp1.cont_out.v1', 'scomp2.cont_in.v2')

@@ -12,6 +12,7 @@ from openmdao.main.printexpr import _get_attr_node, _get_long_name, \
                                     transform_expression, ExprPrinter, \
                                     print_node
 from openmdao.main.index import INDEX, ATTR, CALL, SLICE, EXTSLICE
+from openmdao.main.array_helpers import flattened_value
 
 def _import_functs(mod, dct, names=None):
     if names is None:
@@ -58,17 +59,17 @@ from numpy import ndarray, ndindex, zeros, complex, imag, issubdtype
 
 _Missing = object()
 
-def is_in_process(scope, vname):
-    """Return True if the object referenced by vname is accessible
-    within scope via getattr from this process.
+def find_dotted(scope, vname):
+    """Return the object corresponding to the given name in the given
+    scope. Returns _Missing if object is not found.
     """
     vname = vname.split('[', 1)[0]
     obj = scope
     for name in vname.split('.'):
         obj = getattr(obj, name, _Missing)
         if obj is _Missing:
-            return False
-    return True
+            return obj
+    return obj
 
 def in_expr_locals(scope, name):
     """Return True if the given (dotted) name refers to something in our
@@ -106,7 +107,7 @@ class ExprVarScanner(ast.NodeVisitor):
         if long_name:
             self.varnames.add(long_name)
 
-    def get_names(self, scope):
+    def get_var_names(self, scope):
         """Returns a tuple of the form (local_vars, external_vars)."""
         local_vars = []
         extern_vars = []
@@ -114,7 +115,7 @@ class ExprVarScanner(ast.NodeVisitor):
         for v in self.varnames:
             if in_expr_locals(scope, v):
                 continue
-            if is_in_process(scope, v):
+            if find_dotted(scope, v) is not _Missing:
                 local_vars.append(v)
             else:
                 extern_vars.append(v)
@@ -635,6 +636,14 @@ class ExprEvaluator(object):
         else:
             return self._examiner.refs
 
+    def ordered_refs(self):
+        """Returns a list of all variables referenced, in order from
+        left to right.
+        """
+        text = self.text
+        tups = [(text.index(r),r) for r in self.refs()]
+        return [t[1] for t in sorted(tups)]
+
     def _finite_difference(self, grad_code, var_dict, target_var, stepsize, index=None):
         """ Perform central difference
         """
@@ -794,7 +803,7 @@ class ExprEvaluator(object):
 
         return gradient
 
-    def set(self, val, scope=None, force=False):
+    def set(self, val, scope=None, force=False):#, tovector=False):
         """Set the value of the referenced object to the specified value."""
         scope = self._get_updated_scope(scope)
 
@@ -807,6 +816,17 @@ class ExprEvaluator(object):
         if self._assignment_code is None:
             _, self._assignment_code = self._parse_set()
         exec(self._assignment_code, _expr_dict, locals())
+
+        # # also set the value into the 'u' vector if it's there
+        # # FIXME: take another look at this when we optimize the data
+        # #        passing process between the VecWrappers and the scope
+        # if tovector and hasattr(scope, 'get_system'):
+        #     system = scope.get_system()
+        #     if system is not None:
+        #         uvec = system.vec.get('u')
+        #         if uvec and self.text in uvec:
+        #             uvec[self.text][:] = flattened_value(self.text, val)
+        
 
     def get_metadata(self, metaname=None, scope=None):
         """Return the specified piece of metadata if metaname is provided.
@@ -837,17 +857,22 @@ class ExprEvaluator(object):
 
         return metadata
 
-
-    def get_referenced_varpaths(self, copy=True):
-        """Return a set of pathnames relative to *scope.parent* and based on
-        the names of Variables referenced in our expression string.
+    def get_referenced_varpaths(self, copy=True, refs=False):
+        """Return a set of pathnames relative to *scope.parent* and 
+        based on the names of Variables referenced in our expression 
+        string.  If refs is True, return full references that may 
+        include not only the var name but also an array index, e.g.,
+        'x[3]' instead of just 'x'.
         """
         if self._code is None:
             self._parse()
-        if copy:
-            return self.var_names.copy()
+        if refs:
+            return self.refs(copy)
         else:
-            return self.var_names
+            if copy:
+                return self.var_names.copy()
+            else:
+                return self.var_names
 
     def get_referenced_compnames(self):
         """Return a set of Component names based on the pathnames of
@@ -879,33 +904,6 @@ class ExprEvaluator(object):
                 return [n for n in self.var_names if not scope.contains(n)]
             return self.var_names.copy()
         return []
-
-    def scope_transform(self, scope, new_scope, parent=None):
-        """Return a transformed version of our text string where the attribute
-        names are changed based on a change in scope to the given object.
-        """
-        if self._code is None:
-            self._parse()
-
-        oldname = scope.name + '.' if scope.name else ''
-        newname = new_scope.name + '.' if new_scope.name else ''
-        if scope is new_scope.parent or scope is parent:
-            oldname = 'parent.'
-        elif new_scope is scope.parent or new_scope is parent:
-            newname = 'parent.'
-
-        mapping = {}
-        for var in self.get_referenced_varpaths(copy=False):
-            if var.startswith(newname):
-                mapping[var] = var[len(newname):]
-            else:
-                mapping[var] = oldname+var
-
-        try:
-            return transform_expression(self.text, mapping)
-        except SyntaxError as err:
-            raise SyntaxError("failed to transform expression '%s': %s"
-                              % (self.text, str(err)))
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):

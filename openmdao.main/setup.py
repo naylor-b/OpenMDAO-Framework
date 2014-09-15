@@ -95,5 +95,8 @@ setup(name='openmdao.main',
       openmdao.main.datatypes.vtree.VarTree = openmdao.main.datatypes.vtree:VarTree
       openmdao.main.datatypes.array.Array = openmdao.main.datatypes.array:Array
       
+      [openmdao.driver]
+      openmdao.main.distsolve.MPINonlinearSolver=openmdao.main.distsolve:MPINonlinearSolver
+      openmdao.main.distsolve.MPISolver=openmdao.main.distsolve:MPISolver
       """,
       )

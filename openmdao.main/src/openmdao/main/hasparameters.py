@@ -10,6 +10,7 @@ from openmdao.main.vartree import VariableTree
 from openmdao.util.typegroups import real_types, int_types
 
 from numpy import array, ndarray, ndindex, ones
+from openmdao.main.mpiwrap import mpiprint, MPI
 
 __missing = object()
 
@@ -107,11 +108,13 @@ class ParameterBase(object):
     def initialize(self, scope):
         """Set parameter to initial value."""
         if self.start is None:
-            self.set(self._untransform(self._expreval.evaluate(scope)))
+            start = self._untransform(self._expreval.evaluate(scope))
         else:
-            self.set(self.start, scope)
+            start = self.start
 
-    def set(self, value, scope=None):
+        self.set(start)
+
+    def set(self, val):
         """Assigns the given value to the target referenced by this parameter,
         must be overridden."""
         raise NotImplementedError('set')
@@ -135,9 +138,9 @@ class ParameterBase(object):
         """
         return self._expreval.get_referenced_compnames()
 
-    def get_referenced_varpaths(self):
+    def get_referenced_varpaths(self, refs=False):
         """Return a set of Variable names referenced in our target string."""
-        return self._expreval.get_referenced_varpaths(copy=False)
+        return self._expreval.get_referenced_varpaths(copy=False, refs=refs)
 
     def get_config(self):
         """Return configuration arguments."""
@@ -278,9 +281,10 @@ class Parameter(ParameterBase):
         """Returns the value of this parameter as a sequence."""
         return [self._untransform(self._expreval.evaluate(scope))]
 
-    def set(self, val, scope=None):
+    def set(self, val):
         """Assigns the given value to the target of this parameter."""
-        self._expreval.set(self._transform(val), scope, force=True)
+        transval = self._transform(val)
+        self._get_scope()._system.vec['u'][self._expreval.text][:] = transval
 
     def copy(self):
         """Return a copy of this Parameter."""
@@ -385,10 +389,10 @@ class ParameterGroup(object):
         """Returns finite difference step size as a sequence."""
         return self._params[0].get_fd_step()
 
-    def set(self, value, scope=None):
+    def set(self, value):
         """Set all targets to the given value."""
         for param in self._params:
-            param.set(value, scope)
+            param.set(value)
 
     def evaluate(self, scope=None):
         """Return the value of the first parameter in our target list as a
@@ -439,11 +443,11 @@ class ParameterGroup(object):
                 result[comp] = set([param,])
         return result
 
-    def get_referenced_varpaths(self):
+    def get_referenced_varpaths(self, refs=False):
         """Return a set of Variable names referenced in our target strings."""
         result = set()
         for param in self._params:
-            result.update(param.get_referenced_varpaths())
+            result.update(param.get_referenced_varpaths(refs=refs))
         return result
 
     def copy(self):
@@ -697,7 +701,7 @@ class ArrayParameter(ParameterBase):
         # Forcing a copy to isolate data ownership.
         return self._untransform(self._expreval.evaluate(scope)).flatten()
 
-    def set(self, value, scope=None):
+    def set(self, value):
         """Assigns the given value to the array referenced by this parameter."""
         copied = False
         if isinstance(value, (list, tuple)):
@@ -714,7 +718,8 @@ class ArrayParameter(ParameterBase):
                                  % (value.size, self._size))
         else:
             value = value * ones(self.shape, self.dtype)
-        self._expreval.set(self._transform(value), scope, force=True)
+        transval = self._transform(value)
+        self._get_scope()._system.vec['u'][self._expreval.text][:] = transval.flatten()
 
     def copy(self):
         """Return a copy of this parameter."""
@@ -863,12 +868,9 @@ class HasParameters(object):
                 key = name
 
             dups = set(self.list_param_targets()).intersection(names)
-            if len(dups) == 1:
-                self.parent.raise_exception("'%s' is already a Parameter"
-                                            " target" % dups.pop(), ValueError)
-            elif len(dups) > 1:
+            if dups:
                 self.parent.raise_exception("%s are already Parameter targets"
-                                            % sorted(list(dups)), ValueError)
+                                             % sorted(list(dups)), ValueError)
 
             if key in self._parameters:
                 self.parent.raise_exception("%s is already a Parameter" % key,
@@ -891,6 +893,12 @@ class HasParameters(object):
                 self._parameters[key] = target
             except Exception:
                 self.parent.reraise_exception()
+
+        # add a graph connection from the driver to the param target
+        dgraph = self.parent.get_depgraph()
+        for name in target.targets:
+            dgraph.add_edge(self.parent.name, dgraph.add_subvar(name),
+                            drv_conn=self.parent.name)
 
         self.parent.config_changed()
 
@@ -934,8 +942,14 @@ class HasParameters(object):
             del self._parameters[name]
         else:
             self.parent.raise_exception("Trying to remove parameter '%s' "
-                                        "that is not in this driver."
-                                        % (name,), AttributeError)
+                                         "that is not in this driver."
+                                         % (name,), AttributeError)
+
+        # remove param connections from dep graph
+        dgraph = self._get_scope()._depgraph
+        for target in param.targets:
+            dgraph.remove_edge(self.parent.name, target)
+
         self.parent.config_changed()
 
     def config_parameters(self):
@@ -1021,10 +1035,9 @@ class HasParameters(object):
         """Sets all parameters to their start value if a
         start value is given
         """
-        scope = self._get_scope()
         for param in self._parameters.itervalues():
             if param.start is not None:
-                param.set(param.start, scope)
+                param.set(param.start)
 
     def set_parameter_by_name(self, name, value, case=None, scope=None):
         """Sets a single parameter by its name attribute.
@@ -1044,7 +1057,7 @@ class HasParameters(object):
         """
         param = self._parameters[name]
         if case is None:
-            param.set(value, self._get_scope(scope))
+            param.set(value)
         else:
             for target in param.targets:
                 case.add_input(target, value)
@@ -1055,7 +1068,7 @@ class HasParameters(object):
         variables in the model.  If the 'case' arg is supplied, the values
         will be set into the case and not into the model.
 
-        values: iterator
+        values: iterator (must support slicing)
             Iterator of input values with an order defined to match the
             order of parameters returned by the get_parameters method. All
             'values' must support the len() function.
@@ -1070,16 +1083,17 @@ class HasParameters(object):
                              " values (%s)" %
                              (len(values), self.total_parameters()))
         if case is None:
-            scope = self._get_scope(scope)
+            uvec = self.parent._system.vec['u']
+            #scope = self._get_scope(scope)
             start = 0
             for param in self._parameters.values():
                 size = param.size
                 if size == 1:
-                    param.set(values[start], scope)
+                    param.set(values[start])
                     start += 1
                 else:
                     end = start + size
-                    param.set(values[start:end], scope)
+                    param.set(values[start:end])
                     start = end
         else:
             start = 0
@@ -1156,12 +1170,12 @@ class HasParameters(object):
         """Returns a list of tuples of the form (src_comp_name, dest_comp_name)
         for each dependency introduced by a parameter.
         """
-        conn_list = []
+        conns = set()
         pname = self.parent.name
         for param in self._parameters.values():
             for cname in param.get_referenced_compnames():
-                conn_list.append((pname, cname))
-        return conn_list
+                conns.add((pname, cname))
+        return list(conns)
 
     def get_referenced_compnames(self):
         """Return a set of Component names based on the
@@ -1172,12 +1186,12 @@ class HasParameters(object):
             result.update(param.get_referenced_compnames())
         return result
 
-    def get_referenced_varpaths(self):
+    def get_referenced_varpaths(self, refs=False):
         """Return a set of Variable names referenced in our target strings.
         """
         result = set()
         for param in self._parameters.values():
-            result.update(param.get_referenced_varpaths())
+            result.update(param.get_referenced_varpaths(refs=refs))
         return result
 
     def _get_scope(self, scope=None):
