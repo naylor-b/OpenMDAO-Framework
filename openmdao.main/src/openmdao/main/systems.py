@@ -1246,17 +1246,21 @@ class AssemblySystem(SimpleSystem):
             res = 'du'
 
         nonzero = False
+        
+        vec = inner_system.vec[arg]
+        items = self.list_inputs_and_states() + self.list_outputs_and_residuals()
 
-        for item in self.list_inputs_and_states() + self.list_outputs_and_residuals():
+        for item in items:
             var = self.scope._system.vec[arg][item]
             if any(var != 0):
                 nonzero = True
             sub_name = item.partition('.')[2:][0]
-            inner_system.vec[arg][sub_name] = var
-
-            var = self.scope._system.vec[res][item]
-            sub_name = item.partition('.')[2:][0]
-            inner_system.vec[res][sub_name] = var
+            if sub_name in vec:
+                inner_system.vec[arg][sub_name] = var
+    
+                var = self.scope._system.vec[res][item]
+                sub_name = item.partition('.')[2:][0]
+                inner_system.vec[res][sub_name] = var
 
         # Speedhack, don't call component's derivatives if incoming vector is zero.
         if nonzero is False:
@@ -1264,9 +1268,12 @@ class AssemblySystem(SimpleSystem):
 
         inner_system.applyJ()
 
-        for item in self.list_inputs_and_states() + self.list_outputs_and_residuals():
+        for item in items:
             sub_name = item.partition('.')[2:][0]
-            self.scope._system.vec[res][item] = inner_system.vec[res][sub_name]
+            if sub_name in vec:
+                self.scope._system.vec[res][item] = inner_system.vec[res][sub_name]
+            else:
+                self.scope._system.vec[res][item] = numpy.array([0.0])
 
 
 class CompoundSystem(System):

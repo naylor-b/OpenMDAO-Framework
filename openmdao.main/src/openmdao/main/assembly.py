@@ -1531,10 +1531,10 @@ class Assembly(Component):
         # add InVarSystems and OutVarSystems for boundary vars
         for node, data in collapsed_graph.nodes_iter(data=True):
             if 'boundary' in data and collapsed_graph.degree(node) > 0:
-                if collapsed_graph.in_degree(node) == 0: # input boundary node
+                if data.get('iotype') == 'in' and collapsed_graph.in_degree(node) == 0: # input boundary node
                     collapsed_graph.add_node(node[0], comp='invar')
                     collapsed_graph.add_edge(node[0], node)
-                elif collapsed_graph.out_degree(node) == 0: # output bndry node
+                elif data.get('iotype') == 'out' and collapsed_graph.out_degree(node) == 0: # output bndry node
                     collapsed_graph.add_node(node[1][0], comp='outvar')
                     collapsed_graph.add_edge(node, node[1][0])
 
@@ -1549,7 +1549,19 @@ class Assembly(Component):
         self._reduced_graph = collapsed_graph
 
         for comp in self.get_comps():
-            comp.setup_graph()
+            if isinstance(comp, Assembly):
+                if inputs is not None:
+                    ins = [n.split('.',1)[-1] for n in inputs if n.split('.',1)[0]==comp.name]
+                else:
+                    ins = None
+                if outputs is not None:
+                    outs = [n.split('.',1)[-1] for n in outputs if n.split('.',1)[0]==comp.name]
+                else:
+                    outs = None
+            else:
+                ins = inputs
+                outs = outputs
+            comp.setup_graph(inputs=ins, outputs=outs)
 
     def _explode_vartrees(self, depgraph):
         """Given a depgraph, take all connected variable nodes corresponding
