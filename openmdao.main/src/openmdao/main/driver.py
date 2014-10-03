@@ -7,13 +7,13 @@ from zope.interface import implementedBy
 
 # pylint: disable=E0611,F0401
 
-from openmdao.main.mpiwrap import MPI
 from openmdao.main.component import Component
 from openmdao.main.dataflow import Dataflow
 from openmdao.main.datatypes.api import Bool, Enum, Float, Int, Slot, \
                                         List, VarTree
 from openmdao.main.depgraph import find_all_connecting, simple_node_iter, \
-                                   collapse_driver, get_reduced_subgraph
+                                   collapse_driver, get_reduced_subgraph, \
+                                   boundary_nodes
 from openmdao.main.hasconstraints import HasConstraints, HasEqConstraints, \
                                          HasIneqConstraints
 from openmdao.main.hasevents import HasEvents
@@ -25,6 +25,7 @@ from openmdao.main.mp_support import is_instance, has_interface
 from openmdao.main.rbac import rbac
 from openmdao.main.vartree import VariableTree
 from openmdao.main.workflow import Workflow
+from openmdao.main.systems import _create_simple_sys
 
 from openmdao.util.decorators import add_delegate
 
@@ -152,20 +153,22 @@ class Driver(Component):
         """collapse subdriver iteration sets into single nodes."""
         # collapse all subdrivers in our graph
         itercomps = {}
-        itercomps['#parent'] = self.workflow.get_names(full=True)
+        itercomps['#parent'] = [c.name for c in self.workflow]
 
-        for child_drv in self.subdrivers(recurse=False):
-            itercomps[child_drv.name] = [c.name for c in child_drv.iteration_set()]
+        for comp in self.workflow:
+            if has_interface(comp, IDriver):
+                itercomps[comp.name] = [c.name for c in comp.iteration_set()]
 
-        for child_drv in self.subdrivers(recurse=False):
-            excludes = set()
-            for name, comps in itercomps.items():
-                if name != child_drv.name:
-                    for cname in comps:
-                        if cname not in itercomps[child_drv.name]:
-                            excludes.add(cname)
+        for child_drv in self.workflow:
+            if has_interface(child_drv, IDriver):
+                excludes = set()
+                for name, comps in itercomps.items():
+                    if name != child_drv.name:
+                        for cname in comps:
+                            if cname not in itercomps[child_drv.name]:
+                                excludes.add(cname)
 
-            collapse_driver(g, child_drv, excludes)
+                collapse_driver(g, child_drv, excludes)
 
         # now remove any comps that are shared by subdrivers but are not found
         # in our workflow
@@ -178,16 +181,65 @@ class Driver(Component):
 
         g.remove_nodes_from(to_remove)
 
+        # now that all unneeded comps have been removed, get rid of any
+        # orphaned variable nodes that were between any of those removed comps
+        to_remove = [n for n,data in g.nodes_iter(data=True) 
+                            if 'var' in data and g.degree(n)==0]
+
+        g.remove_nodes_from(to_remove)
+
     def get_depgraph(self):
         return self.parent._depgraph  # May change this to use a smaller graph later
 
     def get_reduced_graph(self):
         if self._reduced_graph is None:
+            # start with full Assembly level collapsed graph
+            rgraph = self.parent.get_reduced_graph()
+
+            # throw away everything that isn't used by us or our subdrivers
             nodes = set([c.name for c in self.iteration_set()])
             nodes.add(self.name)
-            if self.parent._setup_inputs:
-                nodes.update(simple_node_iter(self.parent._setup_inputs))
-            self._reduced_graph = get_reduced_subgraph(self.parent.get_reduced_graph(), nodes)
+            ins, outs = self.get_expr_var_depends(recurse=False)
+            nodes.update(ins)
+            nodes.update(outs)
+
+            # # keep anything that is specified explicitly as an input or output
+            # # to calc_gradient
+            # extern = set()
+            # if self.parent._setup_inputs:
+            #     extern.update(self.parent._setup_inputs)
+            #     extern.update(simple_node_iter(self.parent._setup_inputs))
+            # if self.parent._setup_outputs:
+            #     extern.update(self.parent._setup_outputs)
+                
+            # extern = extern - nodes
+            
+            #nodes.update(extern)
+
+            # this includes all comps we specified and their related associated
+            # vars
+            rgraph = get_reduced_subgraph(rgraph, nodes)
+
+            self._collapse_subdrivers(rgraph)
+
+            # for node in extern:
+            #     node = self.parent.name2collapsed[node]
+            #     if node in rgraph:
+            #         atname = '@'+node[0]
+            #         if rgraph.in_degree(node) == 0:
+            #             rgraph.add_node(atname, comp='dumbvar')
+            #             rgraph.add_edge(atname, node)
+            #             rgraph.node[atname]['system'] = _create_simple_sys(self.parent, rgraph, atname)
+            #         elif rgraph.out_degree(node) == 0:
+            #             rgraph.add_node(atname, comp='dumbvar')
+            #             rgraph.add_edge(node, atname)
+            #             rgraph.node[atname]['system'] = _create_simple_sys(self.parent, rgraph, atname)
+                        
+            #from openmdao.util.dotgraph import plot_graph
+            #plot_graph(rgraph, '%s.pdf' % self.get_pathname())
+            
+            self._reduced_graph = rgraph
+
         return self._reduced_graph
 
     def check_config(self, strict=False):
@@ -568,8 +620,19 @@ class Driver(Component):
         """Return the full set of nodes in the depgraph
         belonging to this driver (includes full iteration set).
         """
-        names = super(Driver, self).get_full_nodeset()
-        names.update(self.workflow.get_full_nodeset())
+        names = set([self.name])
+        names.update([c.name for c in self.iteration_set()])
+
+        # rgraph = self.get_reduced_graph()
+
+        # # some drivers don't have parameters but we still may want derivatives
+        # # w.r.t. other inputs.  Look for param comps that attach to comps in
+        # # our nodeset
+        # for node, data in rgraph.nodes_iter(data=True):
+        #     if data.get('comp') == 'param':
+        #         if node.split('.', 1)[0] in nodeset:
+        #             nodeset.add(node)
+       
         return names
 
     def get_iteration_tree(self):

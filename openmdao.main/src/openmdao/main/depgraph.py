@@ -1156,106 +1156,6 @@ def _get_inner_connections(G, srcs, dests):
     data = G.edge
     return [(u,v) for u,v in _get_inner_edges(G, srcs, dests) if 'conn' in data[u][v]]
 
-def get_subdriver_graph(graph, inputs, outputs, wflow, full_fd=False):
-    """Update the given graph to replace non-solver subdrivers with
-    PseudoAssemblies and promote edges up from sub-Solvers.
-    Returns a list of names of drivers that were replaced, the set of
-    additional inputs from subsolvers, and the set of additional outputs
-    from subsolvers.
-    """
-    # set of comps being used by the current driver, so that
-    # subdriver PAs won't remove them from the graph
-    using = set(wflow.get_names(full=True))
-
-    inputs = list(flatten_list_of_iters(inputs))
-    outputs = list(flatten_list_of_iters(outputs))
-
-    fd_drivers = []
-    xtra_inputs = set()
-    xtra_outputs = set()
-    for comp in wflow:
-        if has_interface(comp, IDriver):
-            # Solvers are absorbed into the top graph
-            if has_interface(comp, ISolver):
-
-                # All this stuff here is so that we can exclude irrelevant
-                # solvers (i.e., they don't show up between our inputs
-                # and outputs.)
-
-                dg_exp = comp.workflow.derivative_graph(inputs=inputs,
-                                                        outputs=outputs,
-                                                        group_nondif=False,
-                                                        add_implicit=False)
-
-                dg_base = comp.workflow.derivative_graph(inputs=None,
-                                                         outputs=None,
-                                                         group_nondif=False,
-                                                         add_implicit=True)
-
-                subcomps = set([key.partition('.')[0] for key in dg_base.node])
-                combocomps = set([key.partition('.')[0] for key in dg_exp.node])
-
-                if len(subcomps.intersection(combocomps)) < 1:
-                    continue
-
-                dg = comp.workflow.derivative_graph(inputs=inputs,
-                                                    outputs=outputs,
-                                                    group_nondif=False,
-                                                    add_implicit=True)
-
-                xtra_inputs.update(flatten_list_of_iters(dg.graph['inputs']))
-                xtra_outputs.update(flatten_list_of_iters(dg.graph['outputs']))
-                for u,v,data in dg.edges_iter(data=True):
-                    graph.add_edge(u, v, attr_dict=data)
-                for param in comp.list_param_targets():
-                    graph.node[param]['solver_state'] = True
-
-            # However, we finite-difference all other drivers.
-            else:
-                fd_drivers.append(comp)
-
-    pa_list = []
-
-    # for all non-solver subdrivers, replace them with a PA
-    if fd_drivers and not full_fd:
-        # only create a copy of the graph if we have non-solver subdrivers
-        startgraph = graph.subgraph(graph.nodes_iter())
-        for drv in fd_drivers:
-
-            pa_list.append(_create_driver_PA(drv, startgraph,
-                                             graph, inputs, outputs,
-                                             wflow, using))
-
-            if not hasattr(drv, 'list_param_targets'):
-                continue
-
-            # The parameters of other drivers can propagate to our expressions
-            # via input-input connections. These are relevant, so save them.
-            sub_params = drv.list_param_targets()
-            pa_name = pa_list[-1].name
-            sub_param_inputs = [to_PA_var(v, pa_name) for v in sub_params]
-            xtra_outputs.update(sub_param_inputs)
-
-            # Our parameter inputs are outputs to the outer drivers, so reverse the
-            # connection direction here.
-            for param in sub_param_inputs:
-                graph.add_edge(pa_name, param)
-                graph.node[param]['iotype'] = 'out'
-
-                # Also gotta reverse basevar connectionss if we are sub
-                if is_subvar_node(graph, param):
-                    base_param = graph.base_var(param)
-                    graph.add_edge(pa_name, base_param)
-                    graph.add_edge(base_param, param)
-                    graph.node[base_param]['iotype'] = 'out'
-
-        for pa in pa_list:
-            pa.clean_graph(startgraph, graph, using)
-
-    # return the list of names of subdrivers that were
-    # replaced with PAs, along with any subsolver states/resids
-    return [d.name for d in fd_drivers], xtra_inputs, xtra_outputs
-
 def _remove_ignored_derivs(graph):
     to_remove = [n for n, data in graph.nodes_iter(data=True) if data.get('deriv_ignore')]
     graph.remove_nodes_from(to_remove)
@@ -1501,6 +1401,38 @@ def collapse_nodes(g, collapsed_name, nodes, remove=True):
         g.remove_nodes_from(nodes)
 
     return in_edges, out_edges
+
+def collapse_comps(g, collapsed_name, comps):
+    nodes, in_vars, out_vars = comp_boundary(g, comps)
+
+    collapse_nodes(g, collapsed_name, nodes)
+ 
+    return in_vars, out_vars    
+
+def comp_boundary(g, comps):
+    """Return the internal nodes, input nodes and 
+    output nodes for the given group of comps.
+    """
+    nodes = comp_group_nodes(g, comps)
+    in_edges, out_edges = \
+                  get_edge_boundary(g, nodes)
+    in_vars = set([v for u,v in in_edges])
+    out_vars = set([u for u,v in out_edges])
+
+    nodes = nodes.difference(in_vars)
+    nodes = nodes.difference(out_vars)
+
+    return nodes, in_vars, out_vars   
+
+def comp_group_nodes(g, comps):
+    """For a given list of comps, return those comps plus
+    all variable nodes that are connected to them.
+    """
+    nodes = set(comps)
+    for comp in comps:
+        nodes.update(g.predecessors(comp))
+        nodes.update(g.successors(comp))
+    return nodes
     
 def collapse_driver(g, driver, excludes=()):
     """For the given driver object, collapse the
@@ -1516,16 +1448,25 @@ def collapse_driver(g, driver, excludes=()):
         
 def internal_nodes(g, comps):
     """Returns a set of nodes containing the given component
-    nodes, plus any variable nodes between them.
+    nodes, plus any variable nodes between them that are not
+    connected to any other outside components.
     """
+    comps = set(comps)
     nodes = set(comps)
     for comp1 in comps:
         for comp2 in comps:
             if comp1 != comp2:
-                outs1 = set([v for u,v in g.edges_iter(comp1)])
-                ins2 = set([u for u,v in g.in_edges_iter(comp2)])
-                nodes.update(outs1.intersection(ins2))
+                outs1 = set(g.successors(comp1))
+                ins2 = g.predecessors(comp2)
+                common = outs1.intersection(ins2)
+                for node in common:
+                    adjacent = set(g.successors(node) +
+                                   g.predecessors(node))
 
+                    # if everything node is connected to is part
+                    # of comps, then keep it
+                    if len(adjacent - comps) == 0:
+                        nodes.add(node)
     return nodes
 
 def transitive_closure(g):
@@ -1666,13 +1607,16 @@ def _add_collapsed_node(g, src, dests):
         cname = s.split('.', 1)[0]
         g.remove_edge(newname, s)
         if g.node[cname].get('comp'):
-             g.add_edge(newname, cname)
+            g.add_edge(newname, cname)
 
 def all_comps(g):
     """Returns a list of all component and PseudoComponent
     nodes.
     """
-    return [n for n in g.nodes_iter() if is_comp_node(g, n)]
+    return [n for n,data in g.nodes_iter(data=True) if 'comp' in data]
+
+def boundary_nodes(g):
+    return [n for n,data in g.nodes_iter(data=True) if 'boundary' in data]
 
 def collapse_connections(orig_graph):
     """Returns a new graph with each variable
@@ -1932,6 +1876,9 @@ def get_nondiff_groups(graph):
 
     nondiff = [n for n,data in graph.nodes_iter(data=True) 
                       if not data['system'].is_differentiable()]
+    
+    if not nondiff:
+        return groups
 
     # TODO: add pseudocomps to nondiff groups if they're
     # connected to nondiff systems on both sides

@@ -1396,6 +1396,10 @@ class Assembly(Component):
             if name in cgraph:
                 cgraph.remove_node(name)
 
+        #from openmdao.util.dotgraph import plot_graph
+        #plot_graph(rgraph, '%s_reduced.pdf' % self.get_pathname())
+        #plot_graph(cgraph, '%s_comp.pdf' % self.get_pathname())
+
         if len(cgraph) > 1:
             self._system = SerialSystem(self, rgraph, cgraph, '_inner_asm')
             self._system.set_ordering(nx.topological_sort(cgraph))
@@ -1558,15 +1562,34 @@ class Assembly(Component):
                         collapsed_graph.add_node(out, comp='outvar')
                         collapsed_graph.add_edge(self.name2collapsed[out], out)
 
-        # add InVarSystems and OutVarSystems for boundary vars
+        # add InVarSystems and OutVarSystems for boundary vars that are connected
+        # either internally or externally
         for node, data in collapsed_graph.nodes_iter(data=True):
-            if 'boundary' in data and collapsed_graph.degree(node) > 0:
-                if data.get('iotype') == 'in' and collapsed_graph.in_degree(node) == 0: # input boundary node
-                    collapsed_graph.add_node(node[0].split('[',1)[0], comp='invar')
-                    collapsed_graph.add_edge(node[0].split('[',1)[0], node)
-                elif data.get('iotype') == 'out' and collapsed_graph.out_degree(node) == 0: # output bndry node
-                    collapsed_graph.add_node(node[1][0].split('[',1)[0], comp='outvar')
-                    collapsed_graph.add_edge(node, node[1][0].split('[',1)[0])
+            if 'boundary' in data:
+                has_internal_conn = collapsed_graph.degree(node) > 0
+                #has_extern_conn = False
+
+                # if not has_internal_conn and self.parent is not None:
+                #     name = "%s.%s" % (self.name, node[0])
+                #     extname = self.parent.name2collapsed.get(name)
+                #     if extname and extname in self.parent._reduced_graph and self.parent._reduced_graph.degree(extname) > 1:
+                #         has_extern_conn = True
+
+                if has_internal_conn: # or has_extern_conn:
+                    if data.get('iotype') == 'in' and collapsed_graph.in_degree(node) == 0: # input boundary node
+                        collapsed_graph.add_node(node[0].split('[',1)[0], comp='invar')
+                        collapsed_graph.add_edge(node[0].split('[',1)[0], node)
+                        # if it's not connected internally, also put a comp node downstream so it doesn't get pruned
+                        # if not has_internal_conn:
+                        #     collapsed_graph.add_node('@'+node[0].split('[',1)[0], comp='dumbvar')
+                        #     collapsed_graph.add_edge(node, '@'+node[0].split('[',1)[0])
+                            
+                    elif data.get('iotype') == 'out' and collapsed_graph.out_degree(node) == 0: # output bndry node
+                        collapsed_graph.add_node(node[1][0].split('[',1)[0], comp='outvar')
+                        collapsed_graph.add_edge(node, node[1][0].split('[',1)[0])
+                        # if not has_internal_conn:
+                        #     collapsed_graph.add_node('@'+node[1][0].split('[',1)[0], comp='dumbvar')
+                        #     collapsed_graph.add_edge('@'+node[1][0].split('[',1)[0], node)
 
         #collapsed_graph = self._add_driver_subvar_conns(dgraph, collapsed_graph)
 

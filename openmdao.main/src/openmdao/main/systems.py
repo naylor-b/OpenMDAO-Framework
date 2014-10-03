@@ -18,7 +18,7 @@ from openmdao.main.interfaces import IDriver, IAssembly, IImplicitComponent, \
 from openmdao.main.vecwrapper import VecWrapper, InputVecWrapper, DataTransfer, idx_merge, petsc_linspace
 from openmdao.main.depgraph import break_cycles, get_node_boundary, transitive_closure, gsort, \
                                    collapse_nodes, simple_node_iter, get_reduced_subgraph, \
-                                   internal_nodes, reduced2component
+                                   internal_nodes, reduced2component, comp_boundary
 from openmdao.main.array_helpers import get_val_and_index, get_flattened_index, \
                                         get_var_shape, flattened_size
 from openmdao.main.derivatives import applyJ, applyJT
@@ -127,38 +127,52 @@ class System(object):
 
         self._mapped_resids = {}
 
-        self._out_nodes = []
+        _, self._in_nodes, self._out_nodes = comp_boundary(graph, nodes) #get_node_boundary(graph, 
+                                                                    #internal_nodes(graph, nodes))
 
-        # find our output nodes (outputs from our System and any child Systems)
-        for node in nodes:
-            if node in graph:
-                for succ in graph.successors(node):
-                    if succ not in self._out_nodes:
-                        self._out_nodes.append(succ)
+        #from openmdao.util.dotgraph import plot_graph
+        #plot_graph(graph)
+        #print "%s internals: %s" % (self.name, internal_nodes(graph, nodes))
+        
+        # states will show up as both inputs and outputs, but treat them
+        # as inputs
+        # TODO: somewhere else in the code we treat states as inputs or
+        #       outputs, depending on something....
+        common = set(self._in_nodes).intersection(self._out_nodes)
 
-        if hasattr(self, '_comp') and \
-           IImplicitComponent.providedBy(self._comp):
-            states = set(['.'.join((self.name,s))
-                                  for s in self._comp.list_states()])
-        else:
-            states = ()
+        self._in_nodes = [n for n in self._in_nodes if n not in common]
 
-        pure_outs = [out for out in self._out_nodes if out not in states]
+        # self._out_nodes = []
 
-        all_outs = set(nodes)
-        all_outs.update(pure_outs)
+        # # find our output nodes (outputs from our System and any child Systems)
+        # for node in nodes:
+        #     if node in graph:
+        #         for succ in graph.successors(node):
+        #             if succ not in self._out_nodes:
+        #                 self._out_nodes.append(succ)
 
-        # get our input nodes from the depgraph
-        self._in_nodes, _ = get_node_boundary(graph, all_outs)
+        # if hasattr(self, '_comp') and \
+        #    IImplicitComponent.providedBy(self._comp):
+        #     states = set(['.'.join((self.name,s))
+        #                           for s in self._comp.list_states()])
+        # else:
+        #     states = ()
 
-        # mpiprint("%s in_nodes: %s" % (self.name, self._in_nodes))
-        # mpiprint("%s out_nodes: %s" % (self.name, self._out_nodes))
+        # pure_outs = [out for out in self._out_nodes if out not in states]
+
+        # all_outs = set(nodes)
+        # all_outs.update(pure_outs)
+
+        # # get our input nodes from the depgraph
+        # self._in_nodes, _ = get_node_boundary(graph, all_outs)
 
         self._in_nodes = sorted(self._in_nodes)
         self._out_nodes = sorted(self._out_nodes)
 
+
+        print "%s: ins=%s,   outs=%s" % (self.name, self._in_nodes, self._out_nodes)
+        
         self.mpi = MPI_info()
-        self.mpi.requested_cpus = None
         self.vec = {}
         self.app_ordering = None
         self.scatter_full = None
@@ -526,6 +540,7 @@ class System(object):
             self._var_meta.update(sub._var_meta)
 
         self._create_var_dicts(resid_state_map)
+        print "%s vars: %s" % (self.name, self.variables.keys())
 
     def _create_var_dicts(self, resid_state_map):
         # now figure out all of the inputs we 'own'
@@ -1462,7 +1477,7 @@ class CompoundSystem(System):
     def __init__(self, scope, graph, subg, name=None):
         super(CompoundSystem, self).__init__(scope,
                                              graph,
-                                             get_full_nodeset(scope, subg.nodes()),
+                                             subg.nodes(), #get_full_nodeset(scope, subg.nodes()),
                                              name)
         self.driver = None
         self.graph = subg
@@ -1558,7 +1573,7 @@ class SerialSystem(CompoundSystem):
             s.set_ordering(ordering)
 
     def get_req_cpus(self):
-        cpus = []
+        cpus = [1]
         for sub in self.all_subsystems():
             cpus.append(sub.get_req_cpus())
         self.mpi.requested_cpus = max(cpus+[1])
@@ -1752,7 +1767,7 @@ class OpaqueSystem(CompoundSystem):
         # need to create invar nodes here else inputs won't exist in
         # internal vectors
         for node in self._in_nodes:
-            graph.add_node(node[0], comp='var')
+            graph.add_node(node[0], comp='dumbvar')
             graph.add_edge(node[0], node)
             graph.node[node[0]]['system'] = _create_simple_sys(scope, graph, node[0])
             nodes.add(node)
@@ -1899,6 +1914,7 @@ class OpaqueSystem(CompoundSystem):
     def get_req_cpus(self):
         return self._inner_system.get_req_cpus()
 
+
 class OpaqueDriverSystem(SimpleSystem):
     """A System for a Driver component that is not a Solver."""
 
@@ -2014,6 +2030,12 @@ class TransparentDriverSystem(SimpleSystem):
         for subsystem in self.local_subsystems():
             subsystem.linearize()
 
+    def is_differentiable(self):
+        """Return True if analytical derivatives can be
+        computed for this System.
+        """
+        return True
+
 
 class SolverSystem(TransparentDriverSystem):  # Implicit
     """A System for a Solver component. While it inherits from a SimpleSystem,
@@ -2106,7 +2128,7 @@ def _create_simple_sys(scope, graph, name):
         sub = InVarSystem(scope, graph, name)
     elif graph.node[name].get('comp') == 'outvar':
         sub = OutVarSystem(scope, graph, name)
-    elif graph.node[name].get('comp') == 'var':
+    elif graph.node[name].get('comp') == 'dumbvar':
         sub = VarSystem(scope, graph, name)
     else:
         raise RuntimeError("don't know how to create a System for '%s'" % name)
@@ -2206,11 +2228,14 @@ def get_comm_if_active(obj, comm):
 
 def get_full_nodeset(scope, group):
     names = set()
-    for name in simple_node_iter(group):
-        obj = getattr(scope, name, None)
-        if obj is not None and hasattr(obj, 'get_full_nodeset'):
-            names.update(obj.get_full_nodeset())
-        else:
+    for name in group:
+        if isinstance(name, tuple):
             names.add(name)
+        else:
+            obj = getattr(scope, name, None)
+            if obj is not None and hasattr(obj, 'get_full_nodeset'):
+                names.update(obj.get_full_nodeset())
+            else:
+                names.add(name)
     return names
 

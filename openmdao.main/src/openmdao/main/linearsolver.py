@@ -64,7 +64,6 @@ class ScipyGMRES(LinearSolver):
 
         system = self._system
         RHS = system.rhs_buf
-        A = self.A
 
         # Size the problem
         # TODO - Support for array slice inputs/outputs
@@ -119,24 +118,31 @@ class ScipyGMRES(LinearSolver):
                     if isinstance(item, tuple):
                         item = item[0]
 
-                    out_indices = system.vec['u'].indices(item)
-                    nk = len(out_indices)
+                    if item in system.vec['u']:
+                        out_indices = system.vec['u'].indices(item)
+                        nk = len(out_indices)
+                    else: # derivs will be zero
+                        out_indices = None
+                        nk = system.get_size([item])
 
                     if return_format == 'dict':
                         if system.mode == 'forward':
                             if J[item][param] is None:
                                 J[item][param] = np.zeros((nk, len(in_indices)))
-                            J[item][param][:, j-jbase] = dx[out_indices]
+                            if out_indices is not None:
+                                J[item][param][:, j-jbase] = dx[out_indices]
                         else:
                             if J[param][item] is None:
                                 J[param][item] = np.zeros((len(in_indices), nk))
-                            J[param][item][j-jbase, :] = dx[out_indices]
+                            if out_indices is not None:
+                                J[param][item][j-jbase, :] = dx[out_indices]
 
                     else:
-                        if system.mode == 'forward':
-                            J[i:i+nk, j] = dx[out_indices]
-                        else:
-                            J[j, i:i+nk] = dx[out_indices]
+                        if out_indices is not None:
+                            if system.mode == 'forward':
+                                J[i:i+nk, j] = dx[out_indices]
+                            else:
+                                J[j, i:i+nk] = dx[out_indices]
                         i += nk
 
                 j += 1

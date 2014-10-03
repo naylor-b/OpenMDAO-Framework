@@ -20,7 +20,7 @@ from openmdao.main.systems import SerialSystem, ParallelSystem, \
                                   get_comm_if_active, collapse_to_system_node
 from openmdao.main.depgraph import _get_inner_connections, reduced2component, \
                                    simple_node_iter, get_nondiff_groups, \
-                                   internal_nodes, collapse_nodes
+                                   internal_nodes, collapse_nodes, collapse_comps
 from openmdao.main.exceptions import RunStopped
 from openmdao.main.interfaces import IVariableTree
 
@@ -770,10 +770,10 @@ class Workflow(object):
 
         cgraph = reduced2component(reduced)
 
-        # collapse driver iteration sets into a single node for
-        # the driver, except for nodes from their iteration set
-        # that are in the iteration set of their parent driver.
-        self.parent._collapse_subdrivers(cgraph)
+        ## collapse driver iteration sets into a single node for
+        ## the driver, except for nodes from their iteration set
+        ## that are in the iteration set of their parent driver.
+        #self.parent._collapse_subdrivers(cgraph)
 
         if self.scope._derivs_required:
             # collapse non-differentiable system groups into
@@ -783,7 +783,9 @@ class Workflow(object):
                                       cgraph.subgraph(group),
                                       str(tuple(group)))
                 collapse_to_system_node(cgraph, system, tuple(group))
-                collapse_nodes(reduced, tuple(group), internal_nodes(reduced, group))
+                reduced.add_node(tuple(group))
+                #collapse_nodes(reduced, tuple(group), internal_nodes(reduced, group))
+                collapse_comps(reduced, tuple(group), group)
 
         if MPI and system_type == 'auto':
             self._auto_setup_systems(scope, reduced, cgraph)
@@ -861,24 +863,6 @@ class Workflow(object):
         if MPI and self.mpi.comm == MPI.COMM_NULL:
             return
         self._system.setup_scatters()
-
-    def get_full_nodeset(self):
-        """Return the set of nodes in the depgraph
-        belonging to this driver (inlcudes full iteration set).
-        """
-        nodeset = set([c.name for c in self.parent.iteration_set()])
-
-        rgraph = self.scope._reduced_graph
-
-        # some drivers don't have parameters but we still may want derivatives
-        # w.r.t. other inputs.  Look for param comps that attach to comps in
-        # our nodeset
-        for node, data in rgraph.nodes_iter(data=True):
-            if data.get('comp') == 'param':
-                if node.split('.', 1)[0] in nodeset:
-                    nodeset.add(node)
-
-        return nodeset
 
 def get_cycle_vars(system):
     # examine the graph to see if we have any cycles that we need to
