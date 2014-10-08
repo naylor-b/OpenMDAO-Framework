@@ -18,7 +18,7 @@ from openmdao.main.interfaces import IDriver, IAssembly, IImplicitComponent, \
 from openmdao.main.vecwrapper import VecWrapper, InputVecWrapper, DataTransfer, idx_merge, petsc_linspace
 from openmdao.main.depgraph import break_cycles, get_node_boundary, transitive_closure, gsort, \
                                    collapse_nodes, simple_node_iter, get_reduced_subgraph, \
-                                   internal_nodes, reduced2component
+                                   internal_nodes, reduced2component, comp_group_nodes
 from openmdao.main.array_helpers import get_val_and_index, get_flattened_index, \
                                         get_var_shape, flattened_size
 from openmdao.main.derivatives import applyJ, applyJT
@@ -1749,29 +1749,42 @@ class OpaqueSystem(CompoundSystem):
         graph = graph.subgraph(graph.nodes_iter())
 
         nodes = internal_nodes(graph, subg.nodes())
-
+        #nodes = comp_group_nodes(graph, subg.nodes())
+        
+        bases = set([n[0] for n in self._in_nodes if '[' not in n[0]])
+        
         # need to create invar nodes here else inputs won't exist in
         # internal vectors
         for node in self._in_nodes:
-            graph.add_node(node[0], comp='dumbvar')
-            graph.add_edge(node[0], node)
-            graph.node[node[0]]['system'] = _create_simple_sys(scope, graph, node[0])
-            nodes.add(node)
-            nodes.add(node[0])
+            if node[0] in bases or node[0].split('[',1)[0] not in bases:
+                graph.add_node(node[0], comp='dumbvar')
+                graph.add_edge(node[0], node)
+                graph.node[node[0]]['system'] = _create_simple_sys(scope, graph, node[0])
+                nodes.add(node)
+                nodes.add(node[0])
+                
+        # now add connections for subvar nodes that share a view with basevars
+        for node in self._in_nodes:
+            if node[0] not in bases:
+                if not (node[0] in bases or node[0].split('[',1)[0] not in bases):
+                    graph.add_edge(node[0].split('[',1)[0], node)
+                    nodes.add(node)
 
-        # Out local outputs must only include the nodes on the boundary.
+        # Our local outputs must only include the nodes on the boundary.
         ext_out_nodes = [n for n in self._out_nodes if n not in nodes]
 
         # Some interior nodes may also have a connection that we don't want
         # to lose:
         int_out_nodes = []
         for node in self._out_nodes:
-            target_comps = [x.partition('.')[0] for x in node[1] if '.' in x]
-            if len(target_comps)> 1 and any(target_comps) not in nodes:
+            target_comps = [x.partition('.')[0] for x in node[1] 
+                              if '.' in x and x.partition('.')[0] not in nodes]
+            if target_comps and node not in ext_out_nodes:
                 int_out_nodes.append(node)
 
-        self.out_nodes = ext_out_nodes + int_out_nodes
+        self._out_nodes = ext_out_nodes + int_out_nodes
 
+        nodes.update(int_out_nodes)
         graph = graph.subgraph(nodes)
 
         self._inner_system = SerialSystem(scope, graph,

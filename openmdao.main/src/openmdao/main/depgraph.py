@@ -502,13 +502,13 @@ class DependencyGraph(nx.DiGraph):
             if srcpath not in self:
                 self.add_node(srcpath, basevar=base_src, **self.node[base_src])
                 added_nodes.append(srcpath)
-            if self.node[base_src].get('boundary'):
-                iotypes = ('in', 'state')
-            else:
-                iotypes = ('out', 'state', 'residual')
-            if self.node[base_src]['iotype'] in iotypes:
-                self.add_edge(base_src, srcpath)
-                added_edges.append((base_src, srcpath))
+            #if self.node[base_src].get('boundary'):
+                #iotypes = ('in', 'state')
+            #else:
+                #iotypes = ('out', 'state', 'residual')
+            #if self.node[base_src]['iotype'] in iotypes:
+            self.add_edge(base_src, srcpath)
+            added_edges.append((base_src, srcpath))
 
         if destpath == base_dest:
             pass
@@ -516,13 +516,13 @@ class DependencyGraph(nx.DiGraph):
             if destpath not in self:
                 self.add_node(destpath, basevar=base_dest, **self.node[base_dest])
                 added_nodes.append(destpath)
-            if self.node[base_dest].get('boundary'):
-                iotypes = ('out', 'state', 'residual')
-            else:
-                iotypes = ('in', 'state')
-            if self.node[base_dest]['iotype'] in iotypes:
-                self.add_edge(destpath, base_dest)
-                added_edges.append((destpath, base_dest))
+            #if self.node[base_dest].get('boundary'):
+                #iotypes = ('out', 'state', 'residual')
+            #else:
+                #iotypes = ('in', 'state')
+            #if self.node[base_dest]['iotype'] in iotypes:
+            self.add_edge(destpath, base_dest)
+            added_edges.append((destpath, base_dest))
 
         if check:
             try:
@@ -1417,16 +1417,30 @@ def collapse_driver(g, driver, excludes=()):
 
 def internal_nodes(g, comps):
     """Returns a set of nodes containing the given component
-    nodes, plus any variable nodes between them.
+    nodes, plus any variable nodes between them. If the nodes
+    have any connections to components outside of comps, don't
+    include them.
     """
     nodes = set(comps)
+    nset = set()
+
     for comp1 in comps:
         for comp2 in comps:
             if comp1 != comp2:
                 outs1 = set([v for u,v in g.edges_iter(comp1)])
                 ins2 = set([u for u,v in g.in_edges_iter(comp2)])
-                nodes.update(outs1.intersection(ins2))
+                nset.update(outs1.intersection(ins2))
+                
+    for n in list(nset):
+        for p in g.predecessors(n):
+            if p not in comps:
+                nset.remove(n)
+        for s in g.successors(n):
+            if s not in comps:
+                nset.remove(n)
 
+    nodes.update(nset)
+    
     return nodes
 
 def transitive_closure(g):
@@ -1763,6 +1777,14 @@ def relevant_subgraph(g, srcs, dests, keep=()):
         g.add_edge('@driver', src)
     for dest in dests:
         g.add_edge(dest, '@driver')
+        
+    # keep any subvars of basevars specified as srcs or dests
+    for node in g.nodes_iter():
+        base = node.split('[', 1)[0]
+        if base in srcs:
+            g.add_edge('@driver', node)
+        elif base in dests:
+            g.add_edge(node, '@driver')
 
     for comps in strongly_connected_components(g):
         if '@driver' in comps:
@@ -1825,19 +1847,6 @@ def reduced2component(reduced):
                         cgraph.add_edge(p, s, varconns=[node])
 
     return cgraph
-
-def get_reduced_subgraph(g, compnodes):
-    """For a given set of component nodes in a
-    reduced graph g, return the subgraph containing those
-    compnodes and all variable nodes that are inputs or outputs
-    to those nodes.
-    """
-    compset = set(compnodes)
-    vnodes = set([])
-    edges = g.edges()
-    vnodes.update([u for u,v in edges if v in compset])
-    vnodes.update([v for u,v in edges if u in compset])
-    return g.subgraph(vnodes.union(compset))
 
 def get_nondiff_groups(graph, scope):
     """Return a modified graph with connected
@@ -1921,21 +1930,62 @@ def connect_subvars_to_comps(g):
     #                 g.remove_edge(node, base)
     #             if node in g[base]:
     #                 g.remove_edge(base, node)
-    for node, data in g.nodes_iter(data=True):
-        if 'comp' in data:
-            comp = node
-            for base_in in g.predecessors(node):
-                for sub_in in g.predecessors(base_in):
-                    if g.node[sub_in].get('basevar') == base_in:
-                        g.add_edge(sub_in, comp)
-                        g.remove_edge(sub_in, base_in)
+    #for node, data in g.nodes_iter(data=True):
+        #if 'comp' in data:
+            #comp = node
+            #for base_in in g.predecessors(node):
+                #for sub_in in g.predecessors(base_in):
+                    #if g.node[sub_in].get('basevar') == base_in:
+                        #g.add_edge(sub_in, comp)
+                        #g.remove_edge(sub_in, base_in)
 
-            for base_out in g.successors(node):
-                for sub_out in g.successors(base_out):
-                    if g.node[sub_out].get('basevar') == base_out:
-                        g.add_edge(comp, sub_out)
-                        g.remove_edge(base_out, sub_out)
+            #for base_out in g.successors(node):
+                #for sub_out in g.successors(base_out):
+                    #if g.node[sub_out].get('basevar') == base_out:
+                        #g.add_edge(comp, sub_out)
+                        #g.remove_edge(base_out, sub_out)
 
+    to_add = set()
+    to_remove = set()
+    
+    for sub, data in g.nodes_iter(data=True):
+        if 'basevar' in data:
+            base = data['basevar']
+            if base not in g:
+                continue
+
+            for p in g.predecessors(base):
+                if p == sub:
+                    to_remove.add((sub, base))
+                    continue
+                elif g.node[p].get('basevar') == base:
+                    continue
+                    
+                if 'comp' in g.node[p]:
+                    comp = p
+                else:
+                    comp = p.split('.', 1)[0]
+                    if not (comp in g and 'comp' in g.node[comp]):
+                        continue
+                to_add.add((comp, sub))
+                
+            for s in g.successors(base):
+                if s == sub:
+                    to_remove.add((base, sub))
+                    continue
+                elif g.node[s].get('basevar') == base:
+                    continue
+                    
+                if 'comp' in g.node[s]:
+                    comp = s
+                else:
+                    comp = s.split('.', 1)[0]
+                    if not (comp in g and 'comp' in g.node[comp]):
+                        continue
+                to_add.add((sub, comp))
+                
+        g.add_edges_from(to_add)
+        g.remove_edges_from(to_remove)
 
 def simple_prune(g):
     """Remove all unconnected var nodes (except states).
@@ -2024,8 +2074,28 @@ def comp_group_nodes(g, comps):
     """For a given list of comps, return those comps plus
     all variable nodes that are connected to them.
     """
-    nodes = set(comps)
-    for comp in comps:
-        nodes.update(g.predecessors(comp))
-        nodes.update(g.successors(comp))
-    return nodes
+    compset = set(comps)
+    vnodes = set()
+    edges = g.edges()
+    vnodes.update([u for u,v in edges if v in compset])
+    vnodes.update([v for u,v in edges if u in compset])
+    return vnodes.union(compset)
+
+def get_reduced_subgraph(g, comps):
+    """For a given set of component nodes in a
+    reduced graph g, return the subgraph containing those
+    comps and all variable nodes that are inputs or outputs
+    to those nodes.
+    """
+    return g.subgraph(comp_group_nodes(g, comps))
+
+def get_basevar_map(g):
+    """Return a dict where keys are basevars and values
+    are a list of subvars for that basevar.
+    """
+    ret = {}
+    for node, data in g.nodes_iter(data=True):
+        if 'basevar' in data:
+            ret.setdefault(data['basevar'], []).append(node)
+
+    return ret

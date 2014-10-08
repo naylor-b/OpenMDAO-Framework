@@ -20,7 +20,7 @@ from openmdao.main.systems import SerialSystem, ParallelSystem, \
                                   get_comm_if_active, collapse_to_system_node
 from openmdao.main.depgraph import _get_inner_connections, reduced2component, \
                                    simple_node_iter, get_nondiff_groups, \
-                                   internal_nodes, collapse_nodes
+                                   internal_nodes, collapse_nodes, get_basevar_map
 from openmdao.main.exceptions import RunStopped
 from openmdao.main.interfaces import IVariableTree
 
@@ -575,6 +575,7 @@ class Workflow(object):
                 if self._check_path(path, includes, excludes):
                     self._rec_constraints.append(con)
                     outputs.append(name)
+
         if hasattr(driver, 'get_ineq_constraints'):
             for con in driver.get_ineq_constraints().values():
                 name = con.pcomp_name
@@ -809,6 +810,19 @@ class Workflow(object):
                     reduced.node[param]['system'] = \
                                ParamSystem(scope, reduced, param)
                 added.add(param)
+
+        # for all varcomps that we've added, make sure they're connected to any subvar
+        # nodes of their basevar
+        for base, subvars in get_basevar_map(self.scope._depgraph).items():
+            if base in added and base in reduced:
+                collbase = name2collapsed[base]
+                for sub in subvars:
+                    collsub = name2collapsed.get(sub, None)
+                    if collsub:
+                        if collbase in reduced[base]: # base->collbase
+                            reduced.add_edge(base, collsub)
+                        else:
+                            reduced.add_edge(collsub, base)
 
         cgraph = reduced2component(reduced)
 

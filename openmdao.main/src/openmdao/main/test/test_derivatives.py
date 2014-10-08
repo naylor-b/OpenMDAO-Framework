@@ -1055,7 +1055,7 @@ Max RelError: [^ ]+ for comp.f_xy / comp.x
         top.driver.add_constraint('comp.x[0] < 1')
 
         top.run()
-        J = top.driver.workflow.calc_gradient(mode='forward')
+        J = top.driver.calc_gradient(mode='forward')
         #print J
         assert_rel_error(self, J[0, 0], 2., 1e-5)
         assert_rel_error(self, J[0, 1], 7., 1e-5)

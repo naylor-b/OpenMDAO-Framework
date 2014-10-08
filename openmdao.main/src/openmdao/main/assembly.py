@@ -48,7 +48,7 @@ from openmdao.main.depgraph import DependencyGraph, all_comps, \
                                    map_collapsed_nodes, simple_node_iter, \
                                    reduced2component, collapse_driver, \
                                    fix_state_connections, connect_subvars_to_comps, \
-                                   add_boundary_comps
+                                   add_boundary_comps, get_basevar_map
 from openmdao.main.systems import SerialSystem, _create_simple_sys
 
 from openmdao.util.graph import list_deriv_vars
@@ -1492,16 +1492,6 @@ class Assembly(Component):
             keep.add(self._top_driver.name)
             keep.update([c.name for c in self._top_driver.iteration_set()])
 
-            # if inputs is None and outputs is not None:
-            #     inputs = list(ddests)
-            #     outputs = list(simple_node_iter(outputs))
-            # elif outputs is None and inputs is not None:
-            #     inputs = list(simple_node_iter(inputs))
-            #     outputs = list(dsrcs)
-            # else:
-            #     inputs = list(simple_node_iter(inputs))
-            #     outputs = list(simple_node_iter(outputs))
-
             if inputs is None:
                 inputs = list(ddests)
             else:
@@ -1549,15 +1539,19 @@ class Assembly(Component):
 
         self.name2collapsed = map_collapsed_nodes(collapsed_graph)
 
+        varcomps = set()
+
         if self._derivs_required: # add ParamSystems for inputs and OutVarSystems for outputs
             if inputs:
                 for param in inputs:
                     collapsed_graph.add_node(param, comp='param')
+                    varcomps.add(param)
                     collapsed_graph.add_edge(param, self.name2collapsed[param])
             if outputs:
                 for out in outputs:
                     if collapsed_graph.out_degree(self.name2collapsed[out]) == 0:
                         collapsed_graph.add_node(out, comp='outvar')
+                        varcomps.add(out)
                         collapsed_graph.add_edge(self.name2collapsed[out], out)
 
         # add InVarSystems and OutVarSystems for boundary vars
@@ -1565,12 +1559,27 @@ class Assembly(Component):
             if 'boundary' in data and collapsed_graph.degree(node) > 0:
                 if data.get('iotype') == 'in' and collapsed_graph.in_degree(node) == 0: # input boundary node
                     collapsed_graph.add_node(node[0].split('[',1)[0], comp='invar')
+                    varcomps.add(node[0].split('[',1)[0])
                     collapsed_graph.add_edge(node[0].split('[',1)[0], node)
                 elif data.get('iotype') == 'out' and collapsed_graph.out_degree(node) == 0: # output bndry node
                     collapsed_graph.add_node(node[1][0].split('[',1)[0], comp='outvar')
+                    varcomps.add(node[1][0].split('[',1)[0])
                     collapsed_graph.add_edge(node, node[1][0].split('[',1)[0])
 
-        #collapsed_graph = self._add_driver_subvar_conns(dgraph, collapsed_graph)
+        # for all varcomps that we've added, make sure they're connected to any subvar
+        # nodes of their basevar
+        for base, subvars in get_basevar_map(self._depgraph).items():
+            if base in varcomps and base in collapsed_graph:
+                collbase = self.name2collapsed[base]
+                for sub in subvars:
+                    collsub = self.name2collapsed.get(sub, None)
+                    if collsub:
+                        if collbase in collapsed_graph[base]: # base->collbase
+                            collapsed_graph.add_edge(base, collsub)
+                        else:
+                            collapsed_graph.add_edge(collsub, base)
+
+        #self._add_driver_subvar_conns(dgraph, collapsed_graph)
 
         # translate kept nodes to collapsed form
         coll_keep = set([self.name2collapsed.get(k,k) for k in keep])
@@ -1587,16 +1596,23 @@ class Assembly(Component):
             comp.setup_graph()
 
     def _add_driver_subvar_conns(self, depgraph, collapsed):
-        """Connect any var nodes with subvar sources that don't have an upstream component
-        to their basevar's upstream component.
+        """Connect var nodes to any components referenced in their srcs or dests.
         """
         for node, data in collapsed.nodes_iter(data=True):
-            if 'basevar' in data and collapsed.in_degree(node) == 0:
-                base = self.name2collapsed[data['basevar']]
-                if base in collapsed:
-                    preds = collapsed.predecessors(base)
-                    if preds:
-                        collapsed.add_edge(preds[0], node)
+            if 'var' in data:
+                for n in simple_node_iter(node):
+                    cname = n.split('.',1)[0]
+                    if cname in depgraph and 'comp' in depgraph.node[cname]:
+                        if depgraph.node[n].get('iotype') == 'in':
+                            collapsed.add_edge(node, cname)
+                        elif depgraph.node[n].get('iotype') == 'out':
+                            collapsed.add_edge(cname, node)
+                            
+                #base = self.name2collapsed[data['basevar']]
+                #if base in collapsed:
+                    #preds = collapsed.predecessors(base)
+                    #if preds:
+                        #collapsed.add_edge(preds[0], node)
         return collapsed
 
     def _explode_vartrees(self, depgraph):
