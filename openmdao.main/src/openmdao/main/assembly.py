@@ -1575,9 +1575,11 @@ class Assembly(Component):
                     collsub = self.name2collapsed.get(sub, None)
                     if collsub:
                         if collbase in collapsed_graph[base]: # base->collbase
-                            collapsed_graph.add_edge(base, collsub)
+                            if base not in collapsed_graph[collsub]:
+                                collapsed_graph.add_edge(base, collsub)
                         else:
-                            collapsed_graph.add_edge(collsub, base)
+                            if collsub not in collapsed_graph[base]:
+                                collapsed_graph.add_edge(collsub, base)
 
         #self._add_driver_subvar_conns(dgraph, collapsed_graph)
 

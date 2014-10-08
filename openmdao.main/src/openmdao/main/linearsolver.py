@@ -29,7 +29,7 @@ class LinearSolver(object):
         """ Computes the norm of the linear residual """
         system = self._system
         system.rhs_vec.array[:] = 0.0
-        system.applyJ(system.vector_vars.keys())
+        system.applyJ(system.flat_vars.keys())
         system.rhs_vec.array[:] *= -1.0
         system.rhs_vec.array[:] += system.rhs_buf[:]
 
@@ -181,7 +181,7 @@ class ScipyGMRES(LinearSolver):
         system.rhs_vec.array[:] = 0.0
         system.clear_dp()
 
-        system.applyJ(system.vector_vars.keys())
+        system.applyJ(system.flat_vars.keys())
 
         #mpiprint ('arg, result', arg, system.rhs_vec.array[:])
         return system.rhs_vec.array[:]

@@ -356,8 +356,8 @@ class System(object):
                         seen.add(comp)
 
         top = self.scope
-        return [i for i in inputs if top.name2collapsed[i] in top._system.vector_vars
-                and not top._system.vector_vars[top.name2collapsed[i]].get('deriv_ignore')]
+        return [i for i in inputs if top.name2collapsed[i] in top._system.vec['u']
+                and not top._system._var_meta[top.name2collapsed[i]].get('deriv_ignore')]
 
     def list_states(self):
         """Returns names of states (not collapsed edges) from this System and

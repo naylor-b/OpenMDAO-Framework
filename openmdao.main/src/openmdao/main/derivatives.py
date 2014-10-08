@@ -139,7 +139,7 @@ def applyJ(system, variables):
         if not is_sys:
             key = item.partition('.')[-1]
         result[key] = system.rhs_vec[item]
-
+    
     # Bail if this component is not connected in the graph
     if len(arg)==0 or len(result)==0:
         return
