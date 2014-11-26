@@ -1121,7 +1121,7 @@ class Assembly(Component):
         rgraph.collapse_subdrivers([], [self._top_driver])
 
         if len(rgraph) > 1:
-            self._system = SerialSystem(self, rgraph, rgraph.component_graph(), 
+            self._system = SerialSystem(self, rgraph, rgraph.component_graph(),
                                         self.name+'._inner_asm')
             self._system.set_ordering(nx.topological_sort(rgraph), {})
         else:
@@ -1334,7 +1334,7 @@ class Assembly(Component):
         else:
             name = node
 
-        parts = name.split('.',1)
+        parts = name.split('.', 1)
         if len(parts) > 1:
             cname, vname = parts
             child = getattr(self, cname)
@@ -1352,7 +1352,8 @@ class Assembly(Component):
             if '[' in vname:  # array index into basevar
                 base = vname.split('[',1)[0]
                 flat_idx = get_flattened_index(idx,
-                                        get_var_shape(base, child))
+                                        get_var_shape(base, child),
+                                        cvt_to_slice=False)
             else:
                 base = None
                 flat_idx = None

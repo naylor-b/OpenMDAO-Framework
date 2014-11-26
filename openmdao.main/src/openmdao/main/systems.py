@@ -480,9 +480,12 @@ class System(object):
             # FIXME: this needs to use the actual indices for this
             #        process' version of the arg once we have distributed
             #        components...
+            # FIXME: if a variable is a distributed variable, does any subvar of that
+            #        variable then have an index that is assumed to be an index into the
+            #        distributed vector?
             #flat_idx = varmeta[name].get('flat_idx')
-            #if flat_idx and varmeta[name]['basevar'] in varmeta:  # var is an array index into a basevar
-            #    self.arg_idx[name] = to_indices(flat_idx, self.scope.get(varmeta[name]['basevar']))
+            #if flat_idx is not None and varmeta[name]['basevar'] in varmeta:  # var is an array index into a basevar
+            #    self.arg_idx[name] = flat_idx #to_indices(flat_idx, self.scope.get(varmeta[name]['basevar']))
             #else:
             self.arg_idx[name] = numpy.array(range(varmeta[name]['size']), 'i')
 
@@ -565,17 +568,16 @@ class System(object):
                             complex_step = True)
 
                 if scatter is self.scatter_full:
-                    self.vec['p'].set_to_scope(self.scope)
+                    destvec.set_to_scope(self.scope)
                     if self.complex_step is True:
                         self.vec['dp'].set_to_scope_complex(self.scope)
                 else:
-                    if subsystem._in_nodes:
-                        self.vec['p'].set_to_scope(self.scope, subsystem._in_nodes)
-                        if self.complex_step is True:
-                            self.vec['dp'].set_to_scope_complex(self.scope,
-                                                                subsystem._in_nodes)
+                    #if subsystem._in_nodes:
+                    destvec.set_to_scope(self.scope, subsystem.vec['u'].keys()) #subsystem._in_nodes)
+                    if self.complex_step is True:
+                        self.vec['dp'].set_to_scope_complex(self.scope, subsystem.vec['u'].keys())
+                                                            #subsystem._in_nodes)
 
-        return scatter
 
     def dump(self, nest=0, stream=sys.stdout, verbose=False):
         """Prints out a textual representation of the collapsed
@@ -992,7 +994,6 @@ class SimpleSystem(System):
 
             vec = self.vec
             vec['f'].array[:] = vec['u'].array[:]
-            self.scatter('u', 'p')
 
             self._comp.set_itername('%s-%s' % (iterbase, self.name))
             self._comp.run(case_uuid=case_uuid)
@@ -1022,8 +1023,6 @@ class SimpleSystem(System):
         # Forward Mode
         if self.mode == 'forward':
 
-            self.scatter('du', 'dp')
-
             self._comp.applyJ(self, variables)
             vec['df'].array[:] *= -1.0
 
@@ -1050,8 +1049,6 @@ class SimpleSystem(System):
                     continue
 
                 vec['du'][var][:] += vec['df'][var][:]
-
-            self.scatter('du', 'dp')
 
     def solve_linear(self, options=None):
         """ Single linear solve solution applied to whatever input is sitting
@@ -1117,7 +1114,7 @@ class InVarSystem(VarSystem):
     """System wrapper for Assembly input variables (internal perspective)."""
 
     def run(self, iterbase, case_label='', case_uuid=None):
-        if self.is_active():
+        if self.is_active():# and self.name in self.vector_vars:
             self.vec['u'].set_from_scope(self.scope, self._nodes)
 
             if self.complex_step is True:
@@ -1139,6 +1136,7 @@ class InVarSystem(VarSystem):
 
     def pre_run(self):
         """ Load param value into u vector. """
+        #if self.name in self.vector_vars:
         self.vec['u'].set_from_scope(self.scope, [self.name])
 
 
@@ -1300,6 +1298,7 @@ class CompoundSystem(System):
         input_sizes = self.input_sizes
         rank = self.mpi.rank
         varmeta = self.scope._var_meta
+        collname = self.scope.name2collapsed
 
         if MPI:
             self.app_ordering = self.create_app_ordering()
@@ -1312,91 +1311,111 @@ class CompoundSystem(System):
                            if v.get('noflat')])
         noflats.update([v for v in self._in_nodes if varmeta[v].get('noflat')])
 
-        start = numpy.sum(input_sizes[:rank])
+        dest_start = numpy.sum(input_sizes[:rank])
         varkeys = self.vector_vars.keys()
 
-        visited = {}
-
-        # collect all destinations from p vector
-        ret = self.vec['p'].get_dests_by_comp()
-
-        # for subsystem in self.all_subsystems():
-        #     src_partial = []
-        #     dest_partial = []
-        #     scatter_conns = set()
-        #     noflat_conns = set()  # non-flattenable vars
-        #
-        #     for node in self._reduced_graph.successors(subsystem.node):
-        #         if node in noflats:
-        #             noflat_conns.add(node)
-        #
-        #         elif node in self.vector_vars: # basevar or non-duped subvar
-        #             if node not in self._owned_args:
-        #                 continue
-        #             isrc = varkeys.index(node)
-        #             src_idxs = numpy.sum(var_sizes[:, :isrc]) + self.arg_idx[node]
-        #             dest_idxs = start + self.arg_idx[node]
-        #             start += len(dest_idxs)
-        #
-        #         elif node in self.flat_vars:  # duped subvar
-        #             pass
-        #
-        #         else:
-        #             continue
-        #
-        #         scatter_conns.add(node)
-
-
-
-        start = numpy.sum(input_sizes[:rank])
         for subsystem in self.all_subsystems():
             src_partial = []
             dest_partial = []
             scatter_conns = set()
             noflat_conns = set()  # non-flattenable vars
-            for sub in subsystem.simple_subsystems():
-                for node in self.vector_vars:
-                    if node in sub._in_nodes:
-                        if node not in self._owned_args or node in scatter_conns:
-                            continue
 
-                        isrc = varkeys.index(node)
-                        src_idxs = numpy.sum(var_sizes[:, :isrc]) + self.arg_idx[node]
+            for node in sorted(self._reduced_graph.successors(subsystem.node)):
+                if node in noflats:
+                    noflat_conns.add(node)
 
-                        # FIXME: broadcast var nodes will be scattered
-                        #  more than necessary using this scheme. switch to a push
-                        #  model with one scatter per source.
-                        if node in visited:
-                            dest_idxs = visited[node]
-                        else:
-                            dest_idxs = start + self.arg_idx[node]
-                            start += len(dest_idxs)
+                elif node in self.vector_vars: # basevar or non-duped subvar
+                    if node not in self._owned_args:
+                        continue
+                    isrc = varkeys.index(node)
+                    src_idxs = numpy.sum(var_sizes[:, :isrc]) + self.arg_idx[node]
+                    dest_idxs = dest_start + self.arg_idx[node]
+                    dest_start += len(dest_idxs)
 
-                            visited[node] = dest_idxs
+                    src_partial.append(src_idxs)
+                    dest_partial.append(dest_idxs)
+                    src_full.append(src_idxs)
+                    dest_full.append(dest_idxs)
 
-                        if node not in scatter_conns:
-                            scatter_conns.add(node)
-                            src_partial.append(src_idxs)
-                            dest_partial.append(dest_idxs)
+                elif node in self.flat_vars:  # duped subvar
+                    if node not in self._owned_args:
+                        continue
+                    base = collname[node[0].split('[', 1)[0]]
+                    isrc = varkeys.index(base)
+                    src_idxs = numpy.sum(var_sizes[:, :isrc]) + varmeta[node]['flat_idx']
 
-                        if node not in scatter_conns_full:
-                            scatter_conns_full.add(node)
-                            src_full.append(src_idxs)
-                            dest_full.append(dest_idxs)
+                    # FIXME: we have some potential data duplication on the input side because
+                    #        we currently allocate space for all subvars, even if their basevar
+                    #        is present.
+                    dest_idxs = dest_start + self.arg_idx[node]
+                    dest_start += len(dest_idxs)
 
-                for node in sub._in_nodes:
-                    if node in noflats:
-                        if node not in self._owned_args or node in noflat_conns or node not in subsystem._in_nodes:
-                            continue
-                        scatter_conns.add(node)
-                        scatter_conns_full.add(node)
-                        noflat_conns.add(node)
-                        noflat_conns_full.add(node)
-                    else:
-                        for sname in sub._all_comp_nodes():
-                            if sname in ret and node in self.vec['p'] and node in ret[sname]:
-                                scatter_conns.add(node)
-                                scatter_conns_full.add(node)
+                    src_partial.append(src_idxs)
+                    dest_partial.append(dest_idxs)
+                    src_full.append(src_idxs)
+                    dest_full.append(dest_idxs)
+
+                else:
+                    continue
+
+                scatter_conns.add(node)
+                scatter_conns_full.add(node)
+
+
+        # visited = {}
+        #
+        # # collect all destinations from p vector
+        # ret = self.vec['p'].get_dests_by_comp()
+        #
+        # dest_start = numpy.sum(input_sizes[:rank])
+        # for subsystem in self.all_subsystems():
+        #     src_partial = []
+        #     dest_partial = []
+        #     scatter_conns = set()
+        #     noflat_conns = set()  # non-flattenable vars
+        #     for sub in subsystem.simple_subsystems():
+        #         for node in self.vector_vars:
+        #             if node in sub._in_nodes:
+        #                 if node not in self._owned_args or node in scatter_conns:
+        #                     continue
+        #
+        #                 isrc = varkeys.index(node)
+        #                 src_idxs = numpy.sum(var_sizes[:, :isrc]) + self.arg_idx[node]
+        #
+        #                 # FIXME: broadcast var nodes will be scattered
+        #                 #  more than necessary using this scheme. switch to a push
+        #                 #  model with one scatter per source.
+        #                 if node in visited:
+        #                     dest_idxs = visited[node]
+        #                 else:
+        #                     dest_idxs = dest_start + self.arg_idx[node]
+        #                     dest_start += len(dest_idxs)
+        #
+        #                     visited[node] = dest_idxs
+        #
+        #                 if node not in scatter_conns:
+        #                     scatter_conns.add(node)
+        #                     src_partial.append(src_idxs)
+        #                     dest_partial.append(dest_idxs)
+        #
+        #                 if node not in scatter_conns_full:
+        #                     scatter_conns_full.add(node)
+        #                     src_full.append(src_idxs)
+        #                     dest_full.append(dest_idxs)
+        #
+        #         for node in sub._in_nodes:
+        #             if node in noflats:
+        #                 if node not in self._owned_args or node in noflat_conns or node not in subsystem._in_nodes:
+        #                     continue
+        #                 scatter_conns.add(node)
+        #                 scatter_conns_full.add(node)
+        #                 noflat_conns.add(node)
+        #                 noflat_conns_full.add(node)
+        #             else:
+        #                 for sname in sub._all_comp_nodes():
+        #                     if sname in ret and node in self.vec['p'] and node in ret[sname]:
+        #                         scatter_conns.add(node)
+        #                         scatter_conns_full.add(node)
 
             if MPI or scatter_conns or noflat_conns:
                 subsystem.scatter_partial = DataTransfer(self, src_partial,
@@ -1508,9 +1527,8 @@ class SerialSystem(CompoundSystem):
             self._stop = False
 
             for sub in self.local_subsystems():
-                self.scatter('u', 'p', sub)
-
                 sub.run(iterbase, case_label=case_label, case_uuid=case_uuid)
+                self.scatter('u', 'p', sub)
                 if self._stop:
                     raise RunStopped('Stop requested')
 
@@ -1522,9 +1540,8 @@ class SerialSystem(CompoundSystem):
             self._stop = False
 
             for sub in self.local_subsystems():
-                self.scatter('u', 'p', sub)
-
                 sub.evaluate(iterbase, case_label, case_uuid)
+                self.scatter('u', 'p', sub)
                 if self._stop:
                     raise RunStopped('Stop requested')
 
@@ -1844,8 +1861,6 @@ class OpaqueSystem(SimpleSystem):
         # Forward Mode
         if self.mode == 'forward':
 
-            self.scatter('du', 'dp')
-
             applyJ(self, variables)
             dfvec.array[:] *= -1.0
 
@@ -2052,7 +2067,7 @@ class SolverSystem(TransparentDriverSystem):  # Implicit
         sub_options = self._comp.gradient_options
         for sub in self.subsystems():
             sub.solve_linear(sub_options)
-        
+
 
 def _create_simple_sys(scope, graph, name):
     """Given a Component or Variable node, create the
