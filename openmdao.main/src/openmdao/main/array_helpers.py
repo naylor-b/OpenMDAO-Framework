@@ -200,11 +200,6 @@ def get_flattened_index(index, shape, cvt_to_slice=True):
         indices = zip(*itertools.product(*indices))
 
     idxs = ravel_multi_index(indices, dims=shape)
-    # if len(idxs) == 1:
-    #     # _flat_idx_cache[(sindex, shape)] = slice(idxs[0], idxs[0]+1)
-    #     # return slice(idxs[0], idxs[0]+1)
-    #     _flat_idx_cache[(sindex, shape, cvt_to_slice)] = idxs[0]
-    #     return idxs[0]
 
     # see if we can convert the discrete list of indices
     # into a single slice object

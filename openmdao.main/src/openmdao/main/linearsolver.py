@@ -82,7 +82,6 @@ class ScipyGMRES(LinearSolver):
         else:
             J = np.zeros((num_output, num_input))
 
-
         if system.mode == 'adjoint':
             outputs, inputs = inputs, outputs
 

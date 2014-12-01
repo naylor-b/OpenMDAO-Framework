@@ -69,7 +69,6 @@ class VecWrapperBase(object):
                                      list(self.bounds(name)),
                                      sub_idx,self.array[sub_idx].size))
 
-
     def __getitem__(self, name):
         view, _, idxs, _, _ = self._info[name]
         return view[idxs]
@@ -226,7 +225,6 @@ class VecWrapper(VecWrapperBase):
                     self._add_subview(scope, name)
 
         # TODO: handle cases where we have overlapping subvars but no basevar
-
 
     def _add_resid(self, system):
         nodemap = system.scope.name2collapsed
@@ -498,6 +496,7 @@ class SerialScatter(object):
         else:
             destvec[self.dest_idxs] = srcvec[self.src_idxs]
 
+
 def merge_idxs(src_idxs, dest_idxs):
     """Return source and destination index arrays, built up from
     smaller index arrays and combined in order of ascending source
@@ -513,7 +512,6 @@ def merge_idxs(src_idxs, dest_idxs):
     new_dest = [dest_idxs[i] for i,_ in src_sorted]
 
     return idx_merge(new_src), idx_merge(new_dest)
-
 
 def idx_merge(idxs):
     """Combines a mixed iterator of int and iterator indices into an
