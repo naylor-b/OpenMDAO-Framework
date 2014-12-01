@@ -56,17 +56,8 @@ class System(object):
                     if succ not in self._out_nodes:
                         self._out_nodes.append(succ)
 
-        if hasattr(self, '_comp') and \
-           IImplicitComponent.providedBy(self._comp):
-            states = set(['.'.join((self.name,s))
-                                  for s in self._comp.list_states()])
-        else:
-            states = ()
-
-        pure_outs = [out for out in self._out_nodes if out not in states]
-
         all_outs = set(nodes)
-        all_outs.update(pure_outs)
+        all_outs.update(self._out_nodes)
 
         # get our input nodes from the depgraph
         ins, _ = get_node_boundary(graph, all_outs)
@@ -572,9 +563,10 @@ class System(object):
                     if self.complex_step is True:
                         self.vec['dp'].set_to_scope_complex(self.scope)
                 else:
-                    destvec.set_to_scope(self.scope, subsystem.vec['u'].keys())
+                    outs = self._reduced_graph.successors(subsystem.node)
+                    destvec.set_to_scope(self.scope, outs) #subsystem.vec['u'].keys())
                     if self.complex_step is True:
-                        self.vec['dp'].set_to_scope_complex(self.scope, subsystem.vec['u'].keys())
+                        self.vec['dp'].set_to_scope_complex(self.scope, outs) #subsystem.vec['u'].keys())
 
     def dump(self, nest=0, stream=sys.stdout, verbose=False):
         """Prints out a textual representation of the collapsed
@@ -1357,62 +1349,6 @@ class CompoundSystem(System):
 
                 scatter_conns.add(node)
                 scatter_conns_full.add(node)
-
-
-        # visited = {}
-        #
-        # # collect all destinations from p vector
-        # ret = self.vec['p'].get_dests_by_comp()
-        #
-        # dest_start = numpy.sum(input_sizes[:rank])
-        # for subsystem in self.all_subsystems():
-        #     src_partial = []
-        #     dest_partial = []
-        #     scatter_conns = set()
-        #     noflat_conns = set()  # non-flattenable vars
-        #     for sub in subsystem.simple_subsystems():
-        #         for node in self.vector_vars:
-        #             if node in sub._in_nodes:
-        #                 if node not in self._owned_args or node in scatter_conns:
-        #                     continue
-        #
-        #                 isrc = varkeys.index(node)
-        #                 src_idxs = numpy.sum(var_sizes[:, :isrc]) + self.arg_idx[node]
-        #
-        #                 # FIXME: broadcast var nodes will be scattered
-        #                 #  more than necessary using this scheme. switch to a push
-        #                 #  model with one scatter per source.
-        #                 if node in visited:
-        #                     dest_idxs = visited[node]
-        #                 else:
-        #                     dest_idxs = dest_start + self.arg_idx[node]
-        #                     dest_start += len(dest_idxs)
-        #
-        #                     visited[node] = dest_idxs
-        #
-        #                 if node not in scatter_conns:
-        #                     scatter_conns.add(node)
-        #                     src_partial.append(src_idxs)
-        #                     dest_partial.append(dest_idxs)
-        #
-        #                 if node not in scatter_conns_full:
-        #                     scatter_conns_full.add(node)
-        #                     src_full.append(src_idxs)
-        #                     dest_full.append(dest_idxs)
-        #
-        #         for node in sub._in_nodes:
-        #             if node in noflats:
-        #                 if node not in self._owned_args or node in noflat_conns or node not in subsystem._in_nodes:
-        #                     continue
-        #                 scatter_conns.add(node)
-        #                 scatter_conns_full.add(node)
-        #                 noflat_conns.add(node)
-        #                 noflat_conns_full.add(node)
-        #             else:
-        #                 for sname in sub._all_comp_nodes():
-        #                     if sname in ret and node in self.vec['p'] and node in ret[sname]:
-        #                         scatter_conns.add(node)
-        #                         scatter_conns_full.add(node)
 
             if MPI or scatter_conns or noflat_conns:
                 subsystem.scatter_partial = DataTransfer(self, src_partial,

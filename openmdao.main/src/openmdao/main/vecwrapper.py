@@ -1,6 +1,7 @@
 
 from collections import OrderedDict, namedtuple
 import numpy
+from numpy import ndarray
 
 from openmdao.main.mpiwrap import MPI, MPI_STREAM, mpiprint, create_petsc_vec, PETSc
 from openmdao.main.array_helpers import offset_flat_index, \
@@ -75,7 +76,10 @@ class VecWrapperBase(object):
 
     def __setitem__(self, name, value):
         view, _, idxs, _, _ = self._info[name]
-        view[idxs] = value.flat
+        if isinstance(value, ndarray):
+            view[idxs] = value.flat
+        else:
+            view[idxs] = value
 
     def __contains__(self, name):
         return name in self._info
@@ -299,11 +303,14 @@ class VecWrapper(VecWrapperBase):
         for name in vnames:
             if isinstance(name, tuple):
                 array_val = self[name]
+                #print "(u) setting %s to %s" % (name[0], array_val)
                 scope.set_flattened_value(name[0], array_val)
                 for dest in name[1]:
                     if dest != name[0]:
+                        #print "(u) setting %s to %s" % (dest, array_val)
                         scope.set_flattened_value(dest, array_val)
             else:
+                #print "(u) setting %s to %s" % (name, self[name])
                 scope.set_flattened_value(name, self[name])
 
 
@@ -316,31 +323,27 @@ class InputVecWrapper(VecWrapperBase):
         start, end = 0, 0
         arg_idx = system.arg_idx
 
-        for sub in system.simple_subsystems():
-            for name in [n for n in system.vector_vars if n in sub._in_nodes]:
-                if name in flat_ins and name not in self._info:
-                    sz = len(arg_idx[name])
-                    end += sz
-                    self._info[name] = ViewInfo(self.array[start:end], start,
-                                                slice(None), end-start, False)
-                    if end-start > self.array[start:end].size:
-                        raise RuntimeError("size mismatch: in system %s view for %s is %s, size=%d" %
-                                     (system.name,name, [start,end],self[name].size))
-                    start += sz
-
         all_ins = set()
-        for sub in system.simple_subsystems():
-            for arg in sub._in_nodes:
-                all_ins.add(arg)
+        for sub in system.all_subsystems(): #system.simple_subsystems():
+            all_ins.update(sub._in_nodes)
+
+        for name in [n for n in system.vector_vars if n in all_ins]:
+            if name in flat_ins and name not in self._info:
+                sz = len(arg_idx[name])
+                end += sz
+                self._info[name] = ViewInfo(self.array[start:end], start,
+                                            slice(None), end-start, False)
+                if end-start > self.array[start:end].size:
+                    raise RuntimeError("size mismatch: in system %s view for %s is %s, size=%d" %
+                                 (system.name, name, [start,end],self[name].size))
+                start += sz
 
         # now add views for subvars that are subviews of their
         # basevars
         for name in all_ins:
             var = varmeta[name]
-
             if name in system.vector_vars or name2collapsed.get(var.get('basevar')) not in self:
                 continue
-
             self._add_subview(scope, name)
 
     def _map_resids_to_states(self, system):
@@ -369,6 +372,7 @@ class InputVecWrapper(VecWrapperBase):
         """Pull values for the given set of names out of our array
         and set them into the given scope.
         """
+        #print "set_to_scope: vnames=%s" % vnames
         if vnames is None:
             vnames = self.keys()
         else:
@@ -378,8 +382,10 @@ class InputVecWrapper(VecWrapperBase):
             array_val = self[name]
             if isinstance(name, tuple):
                 for dest in name[1]:
+                    #print "%s setting %s to %s" % (self.name, dest, array_val)
                     scope.set_flattened_value(dest, array_val)
             else:
+                #print "%s setting %s to %s" % (self.name, name, array_val)
                 scope.set_flattened_value(name, array_val)
 
     def set_to_scope_complex(self, scope, vnames=None):
@@ -396,9 +402,11 @@ class InputVecWrapper(VecWrapperBase):
 
             if isinstance(name, tuple):
                 for dest in name[1]:
+                    #print "(complex) setting %s" % dest
                     array_val = scope.get_flattened_value(dest)
                     scope.set_flattened_value(dest, array_val + step*1j)
             else:
+                #print "(complex) setting %s" % name
                 array_val = scope.get_flattened_value(name)
                 scope.set_flattened_value(name, array_val + step*1j)
 
@@ -478,6 +486,7 @@ class DataTransfer(object):
                     for dest in dests:
                         if src != dest:
                             try:
+                                #print "(noflat) setting %s to %s" % (dest, system.scope.get_attr_w_copy(src))                                
                                 system.scope.set(dest, system.scope.get_attr_w_copy(src))
                             except Exception:
                                 system.scope.reraise_exception("cannot set '%s' from '%s'" % (dest, src))
@@ -494,6 +503,7 @@ class SerialScatter(object):
         if addv is True:
             destvec[self.src_idxs] += srcvec[self.dest_idxs]
         else:
+            #print "%s --> %s" % (self.svec.name, self.dvec.name)
             destvec[self.dest_idxs] = srcvec[self.src_idxs]
 
 
