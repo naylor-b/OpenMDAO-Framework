@@ -1288,6 +1288,7 @@ class CompoundSystem(System):
         rank = self.mpi.rank
         varmeta = self.scope._var_meta
         collname = self.scope.name2collapsed
+        pvecinfo = self.vec['p']._info
 
         if MPI:
             self.app_ordering = self.create_app_ordering()
@@ -1318,8 +1319,8 @@ class CompoundSystem(System):
                         continue
                     isrc = varkeys.index(node)
                     src_idxs = numpy.sum(var_sizes[:, :isrc]) + self.arg_idx[node]
-                    dest_idxs = dest_start + self.arg_idx[node]
-                    dest_start += len(dest_idxs)
+                    dest_idxs = dest_start + pvecinfo[node].start + self.arg_idx[node]
+                    #dest_start += len(dest_idxs)
 
                     src_partial.append(src_idxs)
                     dest_partial.append(dest_idxs)
@@ -1335,8 +1336,8 @@ class CompoundSystem(System):
                     isrc = varkeys.index(base)
                     src_idxs = numpy.sum(var_sizes[:, :isrc]) + varmeta[node]['flat_idx']
 
-                    dest_idxs = dest_start + self.arg_idx[node]
-                    dest_start += len(dest_idxs)
+                    dest_idxs = dest_start + pvecinfo[node].start  + self.arg_idx[node]
+                    #dest_start += len(dest_idxs)
 
                     src_partial.append(src_idxs)
                     dest_partial.append(dest_idxs)
