@@ -475,6 +475,10 @@ class DataTransfer(object):
             dest, src = src, dest
 
         if self.scatter:
+            #print "%s for %s\n%s <-- %s" % (destvec.name.rsplit('.', 1)[1], 
+                                            #destvec.name.rsplit('.',1)[0], 
+                                            #list(self.scatter_conns), 
+                                            #src[self.scatter.dest_idxs if addv else self.scatter.src_idxs])
             self.scatter.scatter(src, dest, addv=addv, mode=mode)
 
         if destvec.name.endswith('.p') and self.noflat_vars:

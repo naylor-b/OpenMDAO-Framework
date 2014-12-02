@@ -1350,7 +1350,7 @@ class CompoundSystem(System):
                 scatter_conns_full.add(node)
 
             if MPI or scatter_conns or noflat_conns:
-                #print "adding scatters: %s" % sorted(scatter_conns)
+                #print "%s adding scatters: %s" % (subsystem.name, sorted(scatter_conns))
                 subsystem.scatter_partial = DataTransfer(self, src_partial,
                                                          dest_partial,
                                                          scatter_conns, noflat_conns)

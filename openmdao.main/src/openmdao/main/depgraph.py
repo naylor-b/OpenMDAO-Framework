@@ -1279,13 +1279,21 @@ class CollapsedGraph(DGraphBase):
 
             self.collapse_driver(child_drv, excludes)
 
-        # remove output edge of bidirectional edges to/from drivers
+        ## remove output edge of bidirectional edges to/from drivers
+        #to_remove = []
+        #subdrvnames = [s.name for s in subdrivers]
+        #for n in subdrvnames:
+            #for s in self.successors(n):
+                #if n in self.successors(s):
+                    #to_remove.append((n, s))
+
+        # remove input edge of bidirectional edges to/from drivers
         to_remove = []
         subdrvnames = [s.name for s in subdrivers]
         for n in subdrvnames:
-            for s in self.successors(n):
-                if n in self.successors(s):
-                    to_remove.append((n, s))
+            for p in self.predecessors(n):
+                if n in self.predecessors(p):
+                    to_remove.append((p, n))
 
         self.remove_edges_from(to_remove)
 
@@ -1793,10 +1801,17 @@ def _add_collapsed_node(g, src, dests):
         if isinstance(s, tuple):
             continue
         cname = s.split('.', 1)[0]
+        pmeta = g[newname][s]
+        cmeta = g[newname][cname] if g.has_edge(newname, cname) else {}
         g.remove_edge(newname, s)
         if g.node[cname].get('comp'):
             if s == cname or cname in g[s]:
-                to_add.append((newname, cname, {}))
+                if 'drv_conn' in cmeta:
+                    to_add.append((newname, cname, {'drv_conn': cmeta['drv_conn']}))
+                elif 'drv_conn' in pmeta:
+                    to_add.append((newname, cname, {'drv_conn': pmeta['drv_conn']}))
+                elif not g.has_edge(newname, cname):
+                    to_add.append((newname, cname, {}))
 
     for u,v, meta in to_add:
         g.add_edge(u, v, **meta)
