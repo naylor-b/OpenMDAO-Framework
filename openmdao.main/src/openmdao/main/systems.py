@@ -1330,12 +1330,11 @@ class CompoundSystem(System):
                     if node not in self._owned_args:
                         continue
                     base = collname[node[0].split('[', 1)[0]]
+                    if base in self._owned_args:
+                        continue
                     isrc = varkeys.index(base)
                     src_idxs = numpy.sum(var_sizes[:, :isrc]) + varmeta[node]['flat_idx']
 
-                    # FIXME: we have some potential data duplication on the input side because
-                    #        we currently allocate space for all subvars, even if their basevar
-                    #        is present.
                     dest_idxs = dest_start + self.arg_idx[node]
                     dest_start += len(dest_idxs)
 
@@ -1351,6 +1350,7 @@ class CompoundSystem(System):
                 scatter_conns_full.add(node)
 
             if MPI or scatter_conns or noflat_conns:
+                #print "adding scatters: %s" % sorted(scatter_conns)
                 subsystem.scatter_partial = DataTransfer(self, src_partial,
                                                          dest_partial,
                                                          scatter_conns, noflat_conns)

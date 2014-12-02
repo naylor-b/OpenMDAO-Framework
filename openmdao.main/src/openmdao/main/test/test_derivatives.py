@@ -3321,9 +3321,9 @@ class TestMultiDriver(unittest.TestCase):
 
         # Test gradient
         #sp.driver.gradient_options.fd_form = 'central'
-        J = sp.driver.workflow.calc_gradient()
+        J = sp.driver.calc_gradient()
 
-        Jfd = sp.driver.workflow.calc_gradient(mode='fd')
+        Jfd = sp.driver.calc_gradient(mode='fd')
 
         diff = J - Jfd
 
