@@ -1376,23 +1376,32 @@ class CollapsedGraph(DGraphBase):
         """If there are any dangling var nodes left in the
         collapsed graph g, connect them to a var comp.
         """
-        to_add = []
+        to_add = set()
         for node, data in self.nodes(data=True):
-            if 'comp' not in data:
+            if 'comp' not in data and 'iotype' in data:
+                base = node[0].split('[', 1)[0]
                 if self.in_degree(node) == 0:
-                    if data['iotype'] == 'in':
-                        newname = node[0]
+                    if base in self and 'comp' in self.node[base]:
+                        newname = base
                     else:
-                        newname = '@'+node[0]
-                    to_add.append((newname, node))
-                    self.add_node(newname, comp='invar')
+                        if data['iotype'] == 'in':
+                            newname = node[0]
+                        else:
+                            newname = '@'+node[0]
+                        self.add_node(newname, comp='invar')
+                    if not self.has_edge(node, newname) and (node, newname) not in to_add:
+                        to_add.add((newname, node))
                 if self.out_degree(node) == 0:
-                    if data['iotype'] == 'out':
-                        newname = node[0]
+                    if base in self and 'comp' in self.node[base]:
+                        newname = base
                     else:
-                        newname = '@'+node[0]
-                    to_add.append((node, newname))
-                    self.add_node(newname, comp='outvar')
+                        if data['iotype'] == 'out':
+                            newname = node[0]
+                        else:
+                            newname = '@'+node[0]
+                        self.add_node(newname, comp='outvar')
+                    if not self.has_edge(newname, node) and (newname, node) not in to_add:
+                        to_add.add((node, newname))
 
         if to_add:
             self.add_edges_from(to_add)

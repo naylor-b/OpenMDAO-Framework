@@ -44,6 +44,7 @@ class System(object):
         self._residuals = None
 
         self._reduced_graph = graph.full_subgraph(nodes)
+        self._reduced_graph.fix_dangling_vars()
 
         self._mapped_resids = {}
 
@@ -70,8 +71,6 @@ class System(object):
                 n = self.scope.name2collapsed[i]
                 if i != self.scope.name2collapsed[i] and n not in self._in_nodes:
                     self._in_nodes.append(n)
-
-        self._combined_graph = graph.subgraph(list(all_outs)+list(self._in_nodes))
 
         self._in_nodes = sorted(self._in_nodes)
         self._out_nodes = sorted(self._out_nodes)
@@ -927,7 +926,7 @@ class SimpleSystem(System):
         for vname in chain(mystates, mynonstates):
             if vname not in self.variables:
                 base = base_var(self.scope._depgraph, vname[0])
-                if base != vname[0] and base in topsys._combined_graph: #self.scope._reduced_graph:
+                if base != vname[0] and base in topsys._reduced_graph:
                     continue
                 self.variables[vname] = varmeta[vname].copy()
 
