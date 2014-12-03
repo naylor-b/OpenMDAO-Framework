@@ -281,7 +281,7 @@ class PETSc_KSP(LinearSolver):
 
         return J
 
-    def newton(self):
+    def solve(self, arg):
         """ Solve the coupled equations for a new state vector that nulls the
         residual. Used by the Newton solvers."""
 
@@ -295,7 +295,7 @@ class PETSc_KSP(LinearSolver):
         system.rhs_vec.array[:] = system.vec['f'].array[:]
         #print 'newton start vec', system.vec['f'].array[:]
 
-        system.sol_buf.array[:] = system.sol_vec.array[:]
+        system.sol_buf.array[:] = arg
         system.rhs_buf.array[:] = system.rhs_vec.array[:]
 
         system.ln_solver.ksp.solve(system.rhs_buf, system.sol_buf)
@@ -303,6 +303,7 @@ class PETSc_KSP(LinearSolver):
         system.vec['df'].array[:] = -system.sol_buf.array[:]
 
         #print 'newton solution vec', system.vec['df'].array[:]
+        return system.vec['df'].array[:]
 
     def mult(self, mat, sol_vec, rhs_vec):
         """ KSP Callback: applies Jacobian matrix. Mode is determined by the
@@ -315,7 +316,14 @@ class PETSc_KSP(LinearSolver):
         system.rhs_vec.array[:] = 0.0
         system.clear_dp()
 
-        system.applyJ(system.vector_vars.keys())
+        varmeta = system.scope._var_meta
+        vnames = set(system.flat_vars.keys())
+        if system._parent_system:
+            g = system._parent_system._comp._reduced_internal_graph
+            vnames.update([n for n,data in g.nodes_iter(data=True)
+                               if 'comp' not in data and not varmeta[n].get('noflat')])
+
+        system.applyJ(vnames)
 
         rhs_vec.array[:] = system.rhs_vec.array[:]
         # mpiprint('names = %s' % system.sol_vec.keys())
@@ -457,7 +465,7 @@ class LinearGS(LinearSolver):
                 for subsystem in system.subsystems(local=True):
                     system.scatter('du', 'dp', subsystem=subsystem)
                     system.rhs_vec.array[:] = 0.0
-                    subsystem.applyJ(system.vector_vars.keys())
+                    subsystem.applyJ(system.flat_vars.keys())
                     system.rhs_vec.array[:] *= -1.0
                     system.rhs_vec.array[:] += system.rhs_buf[:]
                     sub_options = options if subsystem.options is None \
@@ -469,31 +477,22 @@ class LinearGS(LinearSolver):
                 rev_systems = [item for item in reversed(system.subsystems(local=True))]
 
                 for subsystem in rev_systems:
-                    #print '1)', system.name, subsystem.name
-                    #print 'T0', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
                     system.sol_buf[:] = system.rhs_buf[:]
-                    #print 'T1', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
+                    succs = system.graph.successors(subsystem.name)
                     for subsystem2 in rev_systems:
                         if subsystem is not subsystem2:
-                            #print '2)', subsystem2.name, subsystem.name
+                        #if subsystem2.name in succs:
                             system.rhs_vec.array[:] = 0.0
-                            args = subsystem.vector_vars.keys()
-                            #print 'T2', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
+                            args = subsystem.flat_vars.keys()
                             subsystem2.applyJ(args)
-                            #print 'T3', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
                             system.scatter('du', 'dp', subsystem=subsystem2)
-                            #print 'T4', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
-                            system.vec['dp'].array[:] = 0.0
                             system.sol_buf[:] -= system.rhs_vec.array[:]
-                            #print 'T5', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
+                            system.vec['dp'].array[:] = 0.0
                     system.rhs_vec.array[:] = system.sol_buf[:]
-                    #print 'T6', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
                     subsystem.solve_linear(options)
-                    #print 'T7', system.vec['df'].array[:], system.vec['du'].array[:], system.vec['dp'].array[:] 
-
             norm = self._norm()
             counter += 1
-            
+
         #print 'return', options.parent.name, np.linalg.norm(system.rhs_vec.array), system.rhs_vec.array
         #print 'Linear solution vec', system.sol_vec.array
         return system.sol_vec.array
