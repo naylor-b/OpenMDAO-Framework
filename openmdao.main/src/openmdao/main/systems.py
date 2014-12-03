@@ -81,6 +81,7 @@ class System(object):
         self.app_ordering = None
         self.scatter_full = None
         self.scatter_partial = None
+        self.scatter_pull_partial = None
 
         # Derivatives stuff
         self.mode = None
@@ -535,14 +536,16 @@ class System(object):
 
         return self.vec
 
-    def scatter(self, srcvecname, destvecname, subsystem=None):
+    def scatter(self, srcvecname, destvecname, subsystem=None, pull=False):
         """ Perform data transfer (partial or full scatter or
         send/receive for data that isn't flattenable to a
         float array.
         """
         if subsystem is None:
             scatter = self.scatter_full
-        else:
+        elif pull:
+            scatter = subsystem.scatter_pull_partial
+        else:  # normal 'push' scatter
             scatter = subsystem.scatter_partial
 
         if scatter is not None:
@@ -1361,6 +1364,30 @@ class CompoundSystem(System):
                                                          dest_partial,
                                                          scatter_conns, noflat_conns)
 
+        for subsystem in self.all_subsystems():
+            src_partial = []
+            dest_partial = []
+            scatter_conns = set()
+
+            for node in sorted(self._reduced_graph.predecessors(subsystem.node)):
+                src_idxs, dest_idxs, nflat = self._get_node_scatter_idxs(node, noflats, dest_start)
+                if (src_idxs, dest_idxs, nflat) == (None, None, None):
+                    continue
+                
+                if nflat:
+                    continue
+                else:
+                    src_partial.append(src_idxs)
+                    dest_partial.append(dest_idxs)
+                    
+                scatter_conns.add(node)
+
+            if MPI or scatter_conns:
+                #print "%s adding scatters: %s" % (subsystem.name, sorted(scatter_conns))
+                subsystem.scatter_pull_partial = DataTransfer(self, src_partial,
+                                                              dest_partial,
+                                                              scatter_conns, [])
+                
         if MPI or scatter_conns_full or noflat_conns_full:
             self.scatter_full = DataTransfer(self, src_full, dest_full,
                                              scatter_conns_full, noflat_conns_full)

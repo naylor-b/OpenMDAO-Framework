@@ -317,11 +317,10 @@ class PETSc_KSP(LinearSolver):
         system.clear_dp()
 
         varmeta = system.scope._var_meta
-        vnames = set(system.flat_vars.keys())
         if system._parent_system:
-            g = system._parent_system._comp._reduced_internal_graph
-            vnames.update([n for n,data in g.nodes_iter(data=True)
-                               if 'comp' not in data and not varmeta[n].get('noflat')])
+            vnames = system._parent_system._relevant_vars
+        else:
+            vnames = system.flat_vars.keys()
 
         system.applyJ(vnames)
 
@@ -364,17 +363,8 @@ class LinearGS(LinearSolver):
 
         system = self._system
 
-        # Size the problem
-        # TODO - Support for array slice inputs/outputs
-        try:
-            num_input = system.get_size(inputs)
-            num_output = system.get_size(outputs)
-        except KeyError as exc:
-            if '[' in str(exc):
-                msg = 'Array slice inputs and outputs currently not supported.'
-                raise RuntimeError(msg)
-            else:
-                raise
+        num_input = system.get_size(inputs)
+        num_output = system.get_size(outputs)
 
         n_edge = system.vec['f'].array.size
 
@@ -463,7 +453,6 @@ class LinearGS(LinearSolver):
 
             if system.mode == 'forward':
                 for subsystem in system.subsystems(local=True):
-                    system.scatter('du', 'dp', subsystem=subsystem)
                     system.rhs_vec.array[:] = 0.0
                     subsystem.applyJ(system.flat_vars.keys())
                     system.rhs_vec.array[:] *= -1.0
@@ -471,6 +460,7 @@ class LinearGS(LinearSolver):
                     sub_options = options if subsystem.options is None \
                                           else subsystem.options
                     subsystem.solve_linear(sub_options)
+                    system.scatter('du', 'dp', subsystem=subsystem)
 
             elif system.mode == 'adjoint':
 
@@ -485,7 +475,7 @@ class LinearGS(LinearSolver):
                             system.rhs_vec.array[:] = 0.0
                             args = subsystem.flat_vars.keys()
                             subsystem2.applyJ(args)
-                            system.scatter('du', 'dp', subsystem=subsystem2)
+                            system.scatter('du', 'dp', subsystem=subsystem2, pull=True)
                             system.sol_buf[:] -= system.rhs_vec.array[:]
                             system.vec['dp'].array[:] = 0.0
                     system.rhs_vec.array[:] = system.sol_buf[:]
