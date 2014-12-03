@@ -1278,6 +1278,36 @@ class CompoundSystem(System):
         for s in self.local_subsystems():
             s.pre_run()
 
+    def _get_node_scatter_idxs(self, node, noflats, dest_start):
+        varkeys = self.vector_vars.keys()
+        
+        if node in noflats:
+            return (None, None, node)
+
+        elif node in self.vector_vars: # basevar or non-duped subvar
+            if node not in self._owned_args:
+                return (None, None, None)
+            
+            isrc = varkeys.index(node)
+            src_idxs = numpy.sum(self.local_var_sizes[:, :isrc]) + self.arg_idx[node]
+            dest_idxs = dest_start + self.vec['p']._info[node].start + self.arg_idx[node]
+    
+            return (src_idxs, dest_idxs, None)
+
+        elif node in self.flat_vars:  # duped subvar
+            if node not in self._owned_args:
+                return (None, None, None)
+            base = self.scope.name2collapsed[node[0].split('[', 1)[0]]
+            if base in self._owned_args:
+                return (None, None, None)
+            isrc = varkeys.index(base)
+            src_idxs = numpy.sum(self.local_var_sizes[:, :isrc]) + self.scope._var_meta[node]['flat_idx']
+
+            dest_idxs = dest_start + self.vec['p']._info[node].start  + self.arg_idx[node]
+            return (src_idxs, dest_idxs, None)
+
+        return (None, None, None)
+
     def setup_scatters(self):
         """ Defines scatters for args at this system's level """
         if not self.is_active():
@@ -1310,42 +1340,18 @@ class CompoundSystem(System):
             noflat_conns = set()  # non-flattenable vars
 
             for node in sorted(self._reduced_graph.successors(subsystem.node)):
-                if node in noflats:
-                    noflat_conns.add(node)
-
-                elif node in self.vector_vars: # basevar or non-duped subvar
-                    if node not in self._owned_args:
-                        continue
-                    isrc = varkeys.index(node)
-                    src_idxs = numpy.sum(var_sizes[:, :isrc]) + self.arg_idx[node]
-                    dest_idxs = dest_start + pvecinfo[node].start + self.arg_idx[node]
-                    #dest_start += len(dest_idxs)
-
-                    src_partial.append(src_idxs)
-                    dest_partial.append(dest_idxs)
-                    src_full.append(src_idxs)
-                    dest_full.append(dest_idxs)
-
-                elif node in self.flat_vars:  # duped subvar
-                    if node not in self._owned_args:
-                        continue
-                    base = collname[node[0].split('[', 1)[0]]
-                    if base in self._owned_args:
-                        continue
-                    isrc = varkeys.index(base)
-                    src_idxs = numpy.sum(var_sizes[:, :isrc]) + varmeta[node]['flat_idx']
-
-                    dest_idxs = dest_start + pvecinfo[node].start  + self.arg_idx[node]
-                    #dest_start += len(dest_idxs)
-
-                    src_partial.append(src_idxs)
-                    dest_partial.append(dest_idxs)
-                    src_full.append(src_idxs)
-                    dest_full.append(dest_idxs)
-
-                else:
+                src_idxs, dest_idxs, nflat = self._get_node_scatter_idxs(node, noflats, dest_start)
+                if (src_idxs, dest_idxs, nflat) == (None, None, None):
                     continue
-
+                
+                if nflat:
+                    noflat_conns.add(node)
+                else:
+                    src_partial.append(src_idxs)
+                    dest_partial.append(dest_idxs)
+                    src_full.append(src_idxs)
+                    dest_full.append(dest_idxs)
+                    
                 scatter_conns.add(node)
                 scatter_conns_full.add(node)
 
