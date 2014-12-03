@@ -1034,7 +1034,7 @@ class SimpleSystem(System):
 
                 #collapsed = self.scope.name2collapsed.get(var)
                 #if collapsed not in variables:
-                #    continue
+                    #continue
 
                 vec['du'][var][:] += vec['df'][var][:]
 
@@ -1285,7 +1285,7 @@ class CompoundSystem(System):
             return (None, None, node)
 
         elif node in self.vector_vars: # basevar or non-duped subvar
-            if node not in self._owned_args:
+            if node not in self.vec['p']: #self._owned_args:
                 return (None, None, None)
             
             isrc = varkeys.index(node)
@@ -1295,7 +1295,7 @@ class CompoundSystem(System):
             return (src_idxs, dest_idxs, None)
 
         elif node in self.flat_vars:  # duped subvar
-            if node not in self._owned_args:
+            if node not in self.vec['p']: #self._owned_args:
                 return (None, None, None)
             base = self.scope.name2collapsed[node[0].split('[', 1)[0]]
             if base in self._owned_args:
