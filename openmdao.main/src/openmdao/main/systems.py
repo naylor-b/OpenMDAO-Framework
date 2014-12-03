@@ -1658,7 +1658,7 @@ class OpaqueSystem(SimpleSystem):
     system.
     """
     def __init__(self, scope, pgraph, subg, name):
-        nodes = set(subg.nodes())
+        nodes = sorted(subg.nodes())
 
         # take the graph we're given, collapse our nodes into a single
         # node, and create a simple system for that
@@ -2097,6 +2097,7 @@ def partition_subsystems(scope, graph, cgraph):
 
             for branch in parallel_group:
                 if isinstance(branch, tuple):
+                    branch = sorted(branch)
                     to_remove.extend(branch)
                     subg = cgraph.subgraph(branch)
                     partition_subsystems(scope, graph, subg)
@@ -2108,7 +2109,7 @@ def partition_subsystems(scope, graph, cgraph):
                     gcopy.remove_node(branch)
 
             #parallel_group = tuple(sorted(parallel_group))
-            parallel_group = tuple(parallel_group)
+            parallel_group = tuple(sorted(parallel_group))
             to_remove.extend(parallel_group)
             subg = cgraph.subgraph(parallel_group)
             system=ParallelSystem(scope, graph, subg, str(parallel_group))
