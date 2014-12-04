@@ -1283,14 +1283,14 @@ class CompoundSystem(System):
         for s in self.local_subsystems():
             s.pre_run()
 
-    def _get_node_scatter_idxs(self, node, noflats, dest_start):
+    def _get_node_scatter_idxs(self, node, noflats, dest_start, destsys=None):
         varkeys = self.vector_vars.keys()
         
         if node in noflats:
             return (None, None, node)
 
         elif node in self.vector_vars: # basevar or non-duped subvar
-            if node not in self.vec['p']: #self._owned_args:
+            if node not in self.vec['p']:
                 return (None, None, None)
             
             isrc = varkeys.index(node)
@@ -1300,11 +1300,17 @@ class CompoundSystem(System):
             return (src_idxs, dest_idxs, None)
 
         elif node in self.flat_vars:  # duped subvar
-            if node not in self.vec['p']: #self._owned_args:
+            if node not in self.vec['p']:
                 return (None, None, None)
             base = self.scope.name2collapsed[node[0].split('[', 1)[0]]
-            if base in self._owned_args:
-                return (None, None, None)
+            if base in self.vec['p']:
+                if destsys is not None:
+                    basedests = base[1]
+                    for comp in destsys._all_comp_nodes():
+                        if comp in basedests:
+                            return (None, None, None)
+                else:
+                    return (None, None, None)
             isrc = varkeys.index(base)
             src_idxs = numpy.sum(self.local_var_sizes[:, :isrc]) + self.scope._var_meta[node]['flat_idx']
 
@@ -1362,7 +1368,6 @@ class CompoundSystem(System):
                 scatter_conns_full.add(node)
 
             if MPI or scatter_conns or noflat_conns:
-                #print "%s adding scatters: %s" % (subsystem.name, sorted(scatter_conns))
                 subsystem.scatter_partial = DataTransfer(self, src_partial,
                                                          dest_partial,
                                                          scatter_conns, noflat_conns)
@@ -1373,7 +1378,7 @@ class CompoundSystem(System):
             scatter_conns = set()
 
             for node in sorted(self._reduced_graph.predecessors(subsystem.node)):
-                src_idxs, dest_idxs, nflat = self._get_node_scatter_idxs(node, noflats, dest_start)
+                src_idxs, dest_idxs, nflat = self._get_node_scatter_idxs(node, noflats, dest_start, destsys=subsystem)
                 if (src_idxs, dest_idxs, nflat) == (None, None, None):
                     continue
                 
@@ -1387,7 +1392,6 @@ class CompoundSystem(System):
                 scatter_conns.add(node)
 
             if MPI or scatter_conns:
-                #print "%s adding scatters: %s" % (subsystem.name, sorted(scatter_conns))
                 subsystem.scatter_pull_partial = DataTransfer(self, src_partial,
                                                               dest_partial,
                                                               scatter_conns, [])
