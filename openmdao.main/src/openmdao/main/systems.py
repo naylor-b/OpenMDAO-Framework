@@ -473,7 +473,7 @@ class System(object):
             #        components...
             # FIXME: if a variable is a distributed variable, does any subvar of that
             #        variable then have an index that is assumed to be an index into the
-            #        distributed vector?
+            #        distributed vector or the local vector?
             #flat_idx = varmeta[name].get('flat_idx')
             #if flat_idx is not None and varmeta[name]['basevar'] in varmeta:  # var is an array index into a basevar
             #    self.arg_idx[name] = flat_idx #to_indices(flat_idx, self.scope.get(varmeta[name]['basevar']))
@@ -1283,6 +1283,15 @@ class CompoundSystem(System):
         for s in self.local_subsystems():
             s.pre_run()
 
+    def _has_output_data(self, node):
+        """Return True if any outgoing edge from the given node passes data.
+        This is determined by the presence of 'nodata' in the edge metadata.
+        """
+        for u,v,data in self._reduced_graph.edges_iter(node, data=True):
+            if 'nodata' not in data:
+                return True
+        return False
+        
     def _get_node_scatter_idxs(self, node, noflats, dest_start, destsys=None):
         varkeys = self.vector_vars.keys()
         
@@ -1290,7 +1299,7 @@ class CompoundSystem(System):
             return (None, None, node)
 
         elif node in self.vector_vars: # basevar or non-duped subvar
-            if node not in self.vec['p']:
+            if node not in self.vec['p']: # or not self._has_output_data(node):
                 return (None, None, None)
             
             isrc = varkeys.index(node)
@@ -1303,7 +1312,7 @@ class CompoundSystem(System):
             if node not in self.vec['p']:
                 return (None, None, None)
             base = self.scope.name2collapsed[node[0].split('[', 1)[0]]
-            if base in self.vec['p']:
+            if base in self.vec['p']: # and self._has_output_data(base):
                 if destsys is not None:
                     basedests = base[1]
                     for comp in destsys._all_comp_nodes():

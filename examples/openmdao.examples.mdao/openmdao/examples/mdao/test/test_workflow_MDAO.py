@@ -376,7 +376,7 @@ class TestSubOptInclusion(unittest.TestCase):
         sim.run()
 
     def test_SolverCO2(self):
-        #raise SkipTest("FIXME: un-skip this after refactor of scattering")
+        raise SkipTest("FIXME: un-skip this after refactor of scattering")
         # Fix for a bug reported on the forum
         sim = set_as_top(SolverCO2())
         sim.x = [2.0, 2.0]       

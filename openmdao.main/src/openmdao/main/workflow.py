@@ -793,12 +793,14 @@ class Workflow(object):
         for s in parent_graph.successors(drvname):
             if parent_graph[drvname][s].get('drv_conn') == drvname:
                 params.add(s)
+                reduced.add_node(s[0], comp='param')
+                reduced.add_edge(s[0], s)
+
+        #reduced._connect_srcs_to_comps()
 
         # we need to connect a param comp node to all param nodes
         for node in params:
             param = node[0]
-            reduced.add_node(param, comp='param')
-            reduced.add_edge(param, node)
             reduced.node[param]['system'] = \
                        ParamSystem(scope, reduced, param)
 

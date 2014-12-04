@@ -890,9 +890,6 @@ class DependencyGraph(DGraphBase):
         """Take all subvars and connect them directly to
         their parent component node rather than to their
         base var node.
-
-        This should be called on a graph before edge
-        collapsing.
         """
         self._add_boundary_comps()
 
@@ -910,6 +907,10 @@ class DependencyGraph(DGraphBase):
                         if self.node[sub_out].get('basevar') == base_out:
                             self.add_edge(comp, sub_out)
                             self.remove_edge(base_out, sub_out)
+                            #for subsucc in self.successors(sub_out):
+                            #    sub_comp = subsucc.split('.', 1)[0]
+                            #    if sub_comp in self and not self.has_edge(base_out, sub_comp):
+                            #        self.add_edge(base_out, sub_comp, nodata=True)
 
         # get rid of fake boundary comps
         self.remove_nodes_from(['#in', '#out'])
@@ -1324,7 +1325,7 @@ class CollapsedGraph(DGraphBase):
         self.node[driver.name]['comp'] = True
 
     def prune(self, keep):
-        """Remove all unconnected vars that are not states."""
+        """Remove all unconnected vars that are not in 'keep'."""
         to_remove = []
 
         for node, data in self.nodes_iter(data=True):
@@ -1397,8 +1398,10 @@ class CollapsedGraph(DGraphBase):
                         else:
                             newname = '@'+node[0]
                         self.add_node(newname, comp='invar')
+                        
                     if not self.has_edge(node, newname) and (node, newname) not in to_add:
                         to_add.add((newname, node))
+                        
                 if self.out_degree(node) == 0:
                     if base in self and 'comp' in self.node[base]:
                         newname = base
@@ -1408,12 +1411,20 @@ class CollapsedGraph(DGraphBase):
                         else:
                             newname = '@'+node[0]
                         self.add_node(newname, comp='outvar')
+                        
                     if not self.has_edge(newname, node) and (newname, node) not in to_add:
                         to_add.add((node, newname))
 
         if to_add:
             self.add_edges_from(to_add)
 
+    def _connect_srcs_to_comps(self):
+        for node, data in self.nodes_iter(data=True):
+            if 'comp' not in data:
+                comp = node[0].split('[', 1)[0].split('.', 1)[0]
+                if comp in self and not self.has_edge(comp, node):
+                    self.add_edge(comp, node)
+        
     def config_changed(self):
         pass
 
