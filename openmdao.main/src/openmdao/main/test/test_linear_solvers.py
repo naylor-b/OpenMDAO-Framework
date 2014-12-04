@@ -238,8 +238,6 @@ class Testcase_derivatives(unittest.TestCase):
     def test_linearGS_simul_element_and_full_connection(self):
         # Added because of a bug with array slices for Linear GS
 
-        #raise SkipTest('Skip until Bret finished')
-        
         top = Assembly()
         top.add('comp1', ArrayComp2D())
         top.add('comp2', ArrayComp2D())

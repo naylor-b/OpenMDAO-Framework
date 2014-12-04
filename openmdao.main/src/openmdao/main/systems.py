@@ -1014,12 +1014,15 @@ class SimpleSystem(System):
         # Forward Mode
         if self.mode == 'forward':
 
-            self._comp.applyJ(self, variables)
+            if self._comp is None:
+                applyJ(self, variables)
+            else:
+                self._comp.applyJ(self, variables)
+                
             vec['df'].array[:] *= -1.0
 
             for var in self.list_outputs():
                 vec['df'][var][:] += vec['du'][var][:]
-
 
         # Adjoint Mode
         elif self.mode == 'adjoint':
@@ -1030,14 +1033,13 @@ class SimpleSystem(System):
             # previous component's contributions, we can multiply
             # our local 'arg' by -1, and then revert it afterwards.
             vec['df'].array[:] *= -1.0
-            self._comp.applyJT(self, variables)
+            if self._comp is None:
+                applyJT(self, variables)
+            else:
+                self._comp.applyJT(self, variables)
             vec['df'].array[:] *= -1.0
 
             for var in self.list_outputs():
-
-                #collapsed = self.scope.name2collapsed.get(var)
-                #if collapsed not in variables:
-                    #continue
 
                 vec['du'][var][:] += vec['df'][var][:]
 
@@ -1355,6 +1357,7 @@ class CompoundSystem(System):
                     src_full.append(src_idxs)
                     dest_full.append(dest_idxs)
                     
+                #print "%s.%s -->" % (str(node), subsystem.name)
                 scatter_conns.add(node)
                 scatter_conns_full.add(node)
 
@@ -1380,6 +1383,7 @@ class CompoundSystem(System):
                     src_partial.append(src_idxs)
                     dest_partial.append(dest_idxs)
                     
+                #print "--> %s.%s" % (str(node), subsystem.name)
                 scatter_conns.add(node)
 
             if MPI or scatter_conns:
@@ -1819,36 +1823,6 @@ class OpaqueSystem(SimpleSystem):
 
         self.complex_step = complex_step
         self._inner_system.set_complex_step(complex_step)
-
-    def applyJ(self, variables):
-        vec = self.vec
-        dfvec = vec['df']
-
-        # Forward Mode
-        if self.mode == 'forward':
-
-            applyJ(self, variables)
-            dfvec.array[:] *= -1.0
-
-            for var in self.list_outputs():
-                if var in dfvec:
-                    dfvec[var][:] += vec['du'][var][:]
-
-        # Adjoint Mode
-        elif self.mode == 'adjoint':
-
-            # Sign on the local Jacobian needs to be -1 before
-            # we add in the fake residual. Since we can't modify
-            # the 'du' vector at this point without stomping on the
-            # previous component's contributions, we can multiply
-            # our local 'arg' by -1, and then revert it afterwards.
-            dfvec.array[:] *= -1.0
-            applyJT(self, variables)
-            dfvec.array[:] *= -1.0
-
-            for var in self.list_outputs():
-                if var in dfvec:
-                    vec['du'][var][:] += dfvec[var][:]
 
     def set_ordering(self, ordering, opaque_map):
         self._inner_system.set_ordering(ordering, opaque_map)
