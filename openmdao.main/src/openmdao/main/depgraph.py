@@ -1732,16 +1732,16 @@ def gsort(g, names):
     ups = {}
 
     for name in names:
-        downs = [v for u,v in nx.dfs_edges(g, name) if v in nset]
-        for d in downs:
-            if d not in ups.get(name, empty):  # handle cycles
+        for _, d in nx.dfs_edges(g, name):
+            if d in nset and d not in ups.get(name, empty):  # handle cycles
                 ups.setdefault(d, set()).add(name)
 
     i = 0
     while True:
         tmp = final[:i]
         tset = set(tmp)
-        unames = [f for f in final[i+1:] if f in ups.get(final[i],empty) and f not in tset]
+        unames = [f for f in final[i+1:] if f in ups.get(final[i],empty) 
+                     and f not in tset]
         if unames:
             tmp.extend(unames)
             tmp.extend([f for f in final[i:] if f not in unames])
@@ -1751,6 +1751,7 @@ def gsort(g, names):
 
         if i == len(names):
             break
+
         final = tmp
 
     return final

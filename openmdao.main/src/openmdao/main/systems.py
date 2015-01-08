@@ -1468,14 +1468,11 @@ class CompoundSystem(System):
             scatter_conns = set()
             noflat_conns = set()  # non-flattenable vars
             for sub in subsystem.simple_subsystems():
-                #print "simple",str(sub.name)
                 for node in self.variables:
                     if node not in sub._in_nodes or node in scatter_conns:
-                        #print '        excluded1', str(node), node not in sub._in_nodes, node in scatter_conns
                         continue
                     src_idxs, dest_idxs, nflat = self._get_node_scatter_idxs(node, noflats, dest_start, destsys=sub)
                     if (src_idxs is None) and (dest_idxs is None) and (nflat is None):
-                        #print '        excluded2', str(node), src_idxs, dest_idxs, nflat
                         continue
 
                     if nflat:
@@ -1483,7 +1480,6 @@ class CompoundSystem(System):
                             continue
                         noflat_conns.add(node)
                     else:
-                        #print node, src_idxs
                         src_partial.append(src_idxs)
                         dest_partial.append(dest_idxs)
 
@@ -1496,7 +1492,6 @@ class CompoundSystem(System):
                             src_full.append(src_idxs)
                             dest_full.append(dest_idxs)
 
-                    #print 'adding - ',str(node)
                     scatter_conns.add(node)
                     scatter_conns_full.add(node)
 
