@@ -8,8 +8,6 @@ import weakref
 from StringIO import StringIO
 
 from numpy import ndarray
-from networkx.algorithms.dag import is_directed_acyclic_graph
-from networkx.algorithms.components import strongly_connected_components
 
 # pylint: disable-msg=E0611,F0401
 from openmdao.main.mp_support import has_interface
@@ -903,7 +901,7 @@ class Workflow(object):
         for comp in self:
             comp.setup_systems()
 
-        self._cycle_vars = get_cycle_vars(self._system)
+        self._cycle_vars = self._system.get_cycle_vars()
 
     def _auto_setup_systems(self, scope, reduced, cgraph):
         """
@@ -942,26 +940,6 @@ class Workflow(object):
             return
         self._system.setup_communicators(self.mpi.comm)
 
-    # def setup_variables(self):
-    #     if MPI and self.mpi.comm == MPI.COMM_NULL:
-    #         return
-    #     return self._system.setup_variables()
-
-    # def setup_sizes(self):
-    #     if MPI and self.mpi.comm == MPI.COMM_NULL:
-    #         return
-    #     return self._system.setup_sizes()
-
-    # def setup_vectors(self, arrays=None, state_resid_map=None):
-    #     if MPI and self.mpi.comm == MPI.COMM_NULL:
-    #         return
-
-    #     print "state_resid_map:",state_resid_map
-    #     if MPI and state_resid_map:
-    #         self._need_prescatter = True
-
-    #     self._system.setup_vectors(arrays, state_resid_map)
-
     def setup_scatters(self):
         if MPI and self.mpi.comm == MPI.COMM_NULL:
             return
@@ -978,47 +956,6 @@ class Workflow(object):
     def subdrivers(self):
         """Return a list of direct subdrivers in this workflow."""
         return [c for c in self if has_interface(c, IDriver)]
-
-def get_cycle_vars(system):
-    # examine the graph to see if we have any cycles that we need to
-    # deal with
-    cycle_vars = []
-    if not isinstance(system, CompoundSystem):
-        return cycle_vars
-        
-    graph = system.graph
-    varmeta = system.scope._var_meta
-
-    # make a copy of the graph since we don't want to modify it
-    g = graph.subgraph(graph.nodes_iter())
-
-    if not is_directed_acyclic_graph(g):
-        # get total data sizes for subsystem connections
-        sizes = []
-        for u,v,data in g.edges_iter(data=True):
-            sz = 0
-            for node in data['varconns']:
-                dct = varmeta[node]
-                sz += dct.get('size', 0)
-            data['conn_size'] = sz
-            sizes.append((sz, (u,v)))
-
-        sizes = sorted(sizes)
-
-        while not is_directed_acyclic_graph(g):
-            strong = strongly_connected_components(g)[0]
-            if len(strong) == 1:
-                break
-
-            # find the connection with the smallest data xfer
-            for sz, (src, dest) in sizes:
-                if src in strong and dest in strong:
-                    cycle_vars.extend(g[src][dest]['varconns'])
-                    g.remove_edge(src, dest)
-                    sizes.remove((sz, (src, dest)))
-                    break
-
-    return cycle_vars
 
 
 def _fix_tups(x):

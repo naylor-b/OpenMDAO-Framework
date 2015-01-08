@@ -5,6 +5,8 @@ from itertools import chain
 
 import numpy
 import networkx as nx
+from networkx.algorithms.dag import is_directed_acyclic_graph
+from networkx.algorithms.components import strongly_connected_components
 from zope.interface import implements
 
 # pylint: disable-msg=E0611,F0401
@@ -1352,6 +1354,45 @@ class CompoundSystem(System):
     def pre_run(self):
         for s in self.local_subsystems():
             s.pre_run()
+
+    def get_cycle_vars(self):
+        # examine the graph to see if we have any cycles that we need to
+        # deal with
+        cycle_vars = []
+            
+        graph = self.graph
+        varmeta = self.scope._var_meta
+
+        # make a copy of the graph since we don't want to modify it
+        g = graph.subgraph(graph.nodes_iter())
+
+        if not is_directed_acyclic_graph(g):
+            # get total data sizes for subsystem connections
+            sizes = []
+            for u,v,data in g.edges_iter(data=True):
+                sz = 0
+                for node in data['varconns']:
+                    dct = varmeta[node]
+                    sz += dct.get('size', 0)
+                data['conn_size'] = sz
+                sizes.append((sz, (u,v)))
+
+            sizes = sorted(sizes)
+
+            while not is_directed_acyclic_graph(g):
+                strong = strongly_connected_components(g)[0]
+                if len(strong) == 1:
+                    break
+
+                # find the connection with the smallest data xfer
+                for sz, (src, dest) in sizes:
+                    if src in strong and dest in strong:
+                        cycle_vars.extend(g[src][dest]['varconns'])
+                        g.remove_edge(src, dest)
+                        sizes.remove((sz, (src, dest)))
+                        break
+
+        return cycle_vars
 
     def _get_node_scatter_idxs(self, node, noflats, dest_start, destsys=None):
         varkeys = self.vector_vars.keys()
