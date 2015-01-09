@@ -246,24 +246,22 @@ class DependencyGraph(DGraphBase):
     def __init__(self, *args, **kwargs):
         super(DependencyGraph, self).__init__(*args, **kwargs)
         self._severed_edges = []
-        self._allow_config_changed = True
         self.config_changed()
 
     def config_changed(self):
-        if self._allow_config_changed:
-            self._component_graph = None
-            self._loops = None
-            self._saved_loops = None
-            self._saved_comp_graph = None
-            self._chvars = {}
-            self._bndryins = None
-            self._bndryouts = None
-            self._extrnsrcs = None
-            self._extrndsts = None
-            self._srcs = {}
-            self._conns = {}
-            self._indegs = {}
-            self._dstvars = {}
+        self._component_graph = None
+        self._loops = None
+        self._saved_loops = None
+        self._saved_comp_graph = None
+        self._chvars = {}
+        self._bndryins = None
+        self._bndryouts = None
+        self._extrnsrcs = None
+        self._extrndsts = None
+        self._srcs = {}
+        self._conns = {}
+        self._indegs = {}
+        self._dstvars = {}
 
     def child_config_changed(self, child, adding=True, removing=True):
         """A child has changed its input lists and/or output lists,

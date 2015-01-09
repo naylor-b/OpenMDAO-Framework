@@ -185,13 +185,15 @@ class SequentialWorkflow(Workflow):
         if not isinstance(compname, basestring):
             msg = "Components must be removed by name from a workflow."
             raise TypeError(msg)
-        allnames = self.get_names(full=True)
+        #allnames = self.get_names(full=True)
         try:
             self._explicit_names.remove(compname)
         except ValueError:
             pass
-        if compname in allnames:
+        else:
             self.config_changed()
+        #if compname in allnames:
+            #self.config_changed()
 
     def clear(self):
         """Remove all components from this workflow."""

@@ -595,26 +595,31 @@ class Driver(Component):
     @rbac(('owner', 'user'))
     def setup_depgraph(self, dgraph):
         self._reduced_graph = None
-        # # add connections for params, constraints, etc.
-        # pass
 
         if self.workflow._calc_gradient_inputs is not None:
             for param in self.workflow._calc_gradient_inputs:
                 dgraph.add_param(self.name, param)
-        else:  # add connections for our params/constraints/objectives
-            # if hasattr(self, 'list_param_group_targets'):
-            #     params = self.list_param_group_targets()
-
-            # for now do nothing here because params are already
-            # in the depgraph
-            pass
+        else:  # add connections for our params
+            if hasattr(self, 'get_parameters'):
+                for name, p in self.get_parameters().items():
+                    dgraph.add_param(self.name, tuple(p.targets))
 
         # add connections for calc gradient outputs
         if self.workflow._calc_gradient_outputs is not None:
             for vname in self.workflow._calc_gradient_outputs:
                 dgraph.add_driver_input(self.name, vname)
-        else:
-            pass # for now, do nothing
+        else:  # add connections for our constraints/objectives/responses
+            if hasattr(self, 'get_constraints'):
+                for name, con in self.get_constraints().items():
+                    con.activate(dgraph, self)
+
+            if hasattr(self, 'get_objectives'):
+                for name, obj in self.get_objectives().items():
+                    obj.activate(dgraph, self)
+
+            if hasattr(self, 'get_responses'):
+                for name, res in self.get_responses().items():
+                    res.activate(dgraph, self)
 
     @rbac(('owner', 'user'))
     def pre_setup(self):

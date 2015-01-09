@@ -99,10 +99,11 @@ class Constraint(object):
             self._size = len(self.evaluate(self.lhs.scope))
         return self._size
 
-    def activate(self, driver):
+    def activate(self, graph, driver):
         """Make this constraint active by creating the appropriate
         connections in the dependency graph.
         """
+        scope = self.lhs.scope
         if self.pcomp_name is None:
             if self.comparator == '=':
                 subtype = 'equality'
@@ -160,8 +161,11 @@ class Constraint(object):
                                   exprobject=self)
 
             self.pcomp_name = pseudo.name
-            self.lhs.scope.add(pseudo.name, pseudo)
-            getattr(self.lhs.scope, pseudo.name).make_connections(self.lhs.scope, driver)
+            scope.add(pseudo.name, pseudo)
+
+        pseudo = getattr(scope, self.pcomp_name)
+        graph.add_component(pseudo.name, pseudo)
+        pseudo.make_connections(graph, driver)
 
     def _combined_expr(self):
         """Given a constraint object, take the lhs, operator, and
@@ -317,13 +321,12 @@ class Constraint2Sided(Constraint):
         self.low = self.lhs.evaluate()
         self.high = self.rhs.evaluate()
 
-    def activate(self, driver):
+    def activate(self, graph, driver):
         """Make this constraint active by creating the appropriate
         connections in the dependency graph.
         """
+        scope = self.lhs.scope
         if self.pcomp_name is None:
-
-            scope = self.lhs.scope
             refs = list(self.center.ordered_refs())
             pseudo_class = PseudoComponent
 
@@ -339,7 +342,8 @@ class Constraint2Sided(Constraint):
 
             self.pcomp_name = pseudo.name
             scope.add(pseudo.name, pseudo)
-            getattr(scope, pseudo.name).make_connections(scope, driver)
+
+        getattr(scope, self.pcomp_name).make_connections(graph, driver)
 
     def _combined_expr(self):
         """Only need the center expression
@@ -597,7 +601,7 @@ class HasEqConstraints(_HasConstraintsBase):
         constraint.linear = linear
         
         if IDriver.providedBy(self.parent):
-            constraint.activate(self.parent)
+            #constraint.activate(self.parent)
             self.parent.config_changed()
 
         name = ident if name is None else name
@@ -618,7 +622,7 @@ class HasEqConstraints(_HasConstraintsBase):
         """
         if constraint.comparator == '=':
             if IDriver.providedBy(self.parent):
-                constraint.activate(self.parent)
+                #constraint.activate(self.parent)
                 self.parent.config_changed()
             self._constraints[name] = constraint
         else:
@@ -732,7 +736,7 @@ class HasIneqConstraints(_HasConstraintsBase):
         constraint = Constraint(lhs, rel, rhs, scope=_get_scope(self, scope))
         constraint.linear = linear
         if IDriver.providedBy(self.parent):
-            constraint.activate(self.parent)
+            #constraint.activate(self.parent)
             self.parent.config_changed()
 
         if name is None:
@@ -756,7 +760,7 @@ class HasIneqConstraints(_HasConstraintsBase):
         if constraint.comparator != '=':
             self._constraints[name] = constraint
             if IDriver.providedBy(self.parent):
-                constraint.activate(self.parent)
+                #constraint.activate(self.parent)
                 self.parent.config_changed()
         else:
             self.parent.raise_exception("Equality constraint '%s' is not"
@@ -1136,7 +1140,7 @@ class Has2SidedConstraints(_HasConstraintsBase):
         constraint.linear = linear
         
         if IDriver.providedBy(self.parent):
-            constraint.activate(self.parent)
+            #constraint.activate(self.parent)
             self.parent.config_changed()
 
         if name is None:
@@ -1185,7 +1189,7 @@ class Has2SidedConstraints(_HasConstraintsBase):
         """
         self._constraints[name] = constraint
         if IDriver.providedBy(self.parent):
-            constraint.activate(self.parent)
+            #constraint.activate(self.parent)
             self.parent.config_changed()
 
     def mimic(self, target):

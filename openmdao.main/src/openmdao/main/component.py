@@ -430,10 +430,6 @@ class Component(Container):
         if self._call_cpath_updated:
             self.cpath_updated()
 
-        if self._new_config:
-            self.check_config()
-            self._new_config = False
-
     def execute(self):
         """Perform calculations or other actions, assuming that inputs
         have already been set. This must be overridden in derived classes.

@@ -907,8 +907,8 @@ class HasParameters(object):
 
         if IDriver.providedBy(self.parent):
             # add a graph connection from the driver to the param target
-            dgraph = self.parent.get_depgraph()
-            dgraph.add_param(self.parent.name, tuple(target.targets))
+            # dgraph = self.parent.get_depgraph()
+            # dgraph.add_param(self.parent.name, tuple(target.targets))
 
             self.parent.config_changed()
 

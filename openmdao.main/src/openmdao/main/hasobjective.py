@@ -12,7 +12,7 @@ class Objective(ConnectedExprEvaluator):
         super(Objective, self).__init__(*args, **kwargs)
         self.pcomp_name = None
 
-    def activate(self, driver):
+    def activate(self, graph, driver):
         """Make this constraint active by creating the appropriate
         connections in the dependency graph.
         """
@@ -20,7 +20,10 @@ class Objective(ConnectedExprEvaluator):
             pseudo = PseudoComponent(self.scope, self, pseudo_type='objective')
             self.pcomp_name = pseudo.name
             self.scope.add(pseudo.name, pseudo)
-        getattr(self.scope, self.pcomp_name).make_connections(self.scope, driver)
+
+        pseudo = getattr(self.scope, self.pcomp_name)
+        graph.add_component(pseudo.name, pseudo)
+        pseudo.make_connections(graph, driver)
 
     def deactivate(self):
         """Remove this objective from the dependency graph and remove
@@ -124,7 +127,7 @@ class HasObjectives(object):
         name = expr if name is None else name
 
         if IDriver.providedBy(self.parent):
-            expreval.activate(self.parent)
+            #expreval.activate(self.parent)
             self.parent.config_changed()
 
         self._objectives[name] = expreval

@@ -1,32 +1,13 @@
-import sys
-import weakref
-
 import networkx as nx
 
 from openmdao.main.expreval import ConnectedExprEvaluator
-from openmdao.main.pseudocomp import PseudoComponent
-from openmdao.units import PhysicalQuantity
+from openmdao.main.pseudocomp import PseudoComponent, UnitConversionPComp, needs_pseudo
 
 
 class ExprMapper(object):
     """A mapping between source expressions and destination expressions"""
-    def __init__(self, scope):
+    def __init__(self):
         self._exprgraph = nx.DiGraph()  # graph of source expressions to destination expressions
-        self._scope = None if scope is None else weakref.ref(scope)
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        state['_scope'] = self.scope
-        return state
-
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        scope = state['_scope']
-        self._scope = None if scope is None else weakref.ref(scope)
-
-    @property
-    def scope(self):
-        return None if self._scope is None else self._scope()
 
     def get_expr(self, text):
         node = self._exprgraph.node.get(text)
@@ -34,7 +15,7 @@ class ExprMapper(object):
             return node['expr']
         return None
 
-    def list_connections(self, show_passthrough=True, visible_only=False):
+    def list_connections(self, scope, show_passthrough=True, visible_only=False):
         """Return a list of tuples of the form (outvarname, invarname).
         """
         lst = self._exprgraph.edges(data=True)
@@ -44,7 +25,6 @@ class ExprMapper(object):
 
         if visible_only:
             newlst = []
-            scope = self.scope
             for u, v, data in lst:
                 pcomp = data.get('pcomp')
                 if pcomp is not None:
@@ -85,9 +65,10 @@ class ExprMapper(object):
             self._exprgraph.remove_nodes_from(refs)
             self._remove_disconnected_exprs()
 
-    def connect(self, srcexpr, destexpr, scope, pseudocomp=None):
-        src = srcexpr.text
-        dest = destexpr.text
+    def connect(self, scope, src, dest):
+        destexpr = ConnectedExprEvaluator(dest, scope, is_dest=True)
+        srcexpr = ConnectedExprEvaluator(src, scope,
+                                         getter='get_attr_w_copy')
         srcvars = srcexpr.get_referenced_varpaths(copy=False)
         destvar = destexpr.get_referenced_varpaths().pop()
 
@@ -131,8 +112,8 @@ class ExprMapper(object):
             self._exprgraph.add_node(dest, expr=destexpr)
 
         self._exprgraph.add_edge(src, dest)
-        if pseudocomp is not None:
-            self._exprgraph[src][dest]['pcomp'] = pseudocomp
+        # if pseudocomp is not None:
+        #     self._exprgraph[src][dest]['pcomp'] = pseudocomp
 
     def find_referring_exprs(self, name):
         """Returns a list of expression strings that reference the given name,
@@ -140,6 +121,17 @@ class ExprMapper(object):
         """
         return [node for node, data in self._exprgraph.nodes(data=True)
                        if data['expr'].refers_to(name)]
+
+    def find_referring_edges(self, name):
+        """Returns a list of edges that reference the given name,
+        which can refer to either a variable or a component.
+        """
+        conns = []
+        data = self._exprgraph.node
+        for u,v in self._exprgraph.edges_iter():
+            if data[u]['expr'].refers_to(name) or data[v]['expr'].refers_to(name):
+                conns.append((u,v))
+        return conns
 
     def _remove_disconnected_exprs(self):
         # remove all expressions that are no longer connected to anything
@@ -151,7 +143,7 @@ class ExprMapper(object):
         graph.remove_nodes_from(to_remove)
         return to_remove
 
-    def disconnect(self, srcpath, destpath=None):
+    def disconnect(self, scope, srcpath, destpath=None):
         """Disconnect the given expressions/variables/components.
         Returns a list of edges to remove and a list of pseudocomponents
         to remove.
@@ -182,7 +174,6 @@ class ExprMapper(object):
                                                if src in src_exprs and dest in dest_exprs])
 
         added = []
-        scope = self.scope
         for src, dest in to_remove:
             if src.startswith('_pseudo_'):
                 pcomp = getattr(scope, src.split('.', 1)[0])
@@ -201,82 +192,67 @@ class ExprMapper(object):
 
         return to_remove, pcomps
 
-    def check_connect(self, src, dest, scope):
-        """Check validity of connecting a source expression to a destination
-        expression, and determine if we need to create links to pseudocomps.
-        """
+    # def check_connect(self, src, dest, scope):
+    #     """Check validity of connecting a source expression to a destination
+    #     expression.
+    #     """
 
-        if self.get_source(dest) is not None:
-            scope.raise_exception("'%s' is already connected to source '%s'" %
-                                  (dest, self.get_source(dest)), RuntimeError)
+    #     if self.get_source(dest) is not None:
+    #         scope.raise_exception("'%s' is already connected to source '%s'" %
+    #                               (dest, self.get_source(dest)), RuntimeError)
 
-        destexpr = ConnectedExprEvaluator(dest, scope, is_dest=True)
-        srcexpr = ConnectedExprEvaluator(src, scope,
-                                         getter='get_attr_w_copy')
+    #     destexpr = ConnectedExprEvaluator(dest, scope, is_dest=True)
+    #     srcexpr = ConnectedExprEvaluator(src, scope,
+    #                                      getter='get_attr_w_copy')
 
-        srccomps = srcexpr.get_referenced_compnames()
-        destcomps = list(destexpr.get_referenced_compnames())
+    #     srccomps = srcexpr.get_referenced_compnames()
+    #     destcomps = list(destexpr.get_referenced_compnames())
 
-        if destcomps and destcomps[0] in srccomps:
-            raise RuntimeError("'%s' and '%s' refer to the same component."
-                               % (src, dest))
+    #     if destcomps and destcomps[0] in srccomps:
+    #         raise RuntimeError("'%s' and '%s' refer to the same component."
+    #                            % (src, dest))
 
-        try:
-            return srcexpr, destexpr, self._needs_pseudo(srcexpr, destexpr)
-        except AttributeError as err:
-            exc_type, value, traceback = sys.exc_info()
+    #     return srcexpr, destexpr
 
-            invalid_vars = srcexpr.get_unresolved() + destexpr.get_unresolved()
-            parts = invalid_vars[0].rsplit('.', 1)
+        # try:
+        #     return srcexpr, destexpr, self._needs_pseudo(srcexpr, destexpr)
+        # except AttributeError:
+        #     exc_type, value, traceback = sys.exc_info()
 
-            parent = repr(scope.name) if scope.name else 'top level assembly'
-            vname = repr(parts[0])
+        #     invalid_vars = srcexpr.get_unresolved() + destexpr.get_unresolved()
+        #     parts = invalid_vars[0].rsplit('.', 1)
 
-            if len(parts) > 1:
-                parent = repr(parts[0])
-                vname = repr(parts[1])
+        #     parent = repr(scope.name) if scope.name else 'top level assembly'
+        #     vname = repr(parts[0])
 
-            msg = "{parent} has no variable {vname}"
-            msg = msg.format(parent=parent, vname=vname)
+        #     if len(parts) > 1:
+        #         parent = repr(parts[0])
+        #         vname = repr(parts[1])
 
-            raise AttributeError, AttributeError(msg), traceback
+        #     msg = "{parent} has no variable {vname}"
+        #     msg = msg.format(parent=parent, vname=vname)
 
+        #     raise AttributeError, AttributeError(msg), traceback
 
-    def _needs_pseudo(self, srcexpr, destexpr):
-        """Return a non-None pseudo_type if srcexpr and destexpr require a
-        pseudocomp to be created.
-        """
-        srcrefs = list(srcexpr.refs())
-        if srcrefs and srcrefs[0] != srcexpr.text:
-            # expression is more than just a simple variable reference,
-            # so we need a pseudocomp
-            return 'multi_var_expr'
+    def setup_depgraph(self, scope, graph):
+        egraph = self._exprgraph
+        for src, dest in egraph.edges_iter():
+            srcexpr = egraph.node[src]['expr']
+            destexpr = egraph.node[dest]['expr']
+            pcomp_type = needs_pseudo(srcexpr, destexpr)
+            if pcomp_type:  # create a pseudocomp and add connections
+                if pcomp_type == 'units':
+                    pseudocomp = UnitConversionPComp(scope, srcexpr, destexpr,
+                                                     pseudo_type=pcomp_type)
+                else:
+                    pseudocomp = PseudoComponent(scope, srcexpr, destexpr,
+                                                 pseudo_type=pcomp_type)
+                scope.add(pseudocomp.name, pseudocomp)
+                graph.add_component(pseudocomp.name, pseudocomp)
+                pseudocomp.make_connections(graph)
+            else:
+                graph.connect(scope, src, dest)
 
-        destmeta = destexpr.get_metadata('units')
-        srcmeta = srcexpr.get_metadata('units')
-
-        # compare using get_unit_name() to account for unit aliases
-        if srcmeta:
-            srcunit = srcmeta[0][1]
-            if srcunit:
-                srcunit = PhysicalQuantity(1., srcunit).unit
-        else:
-            srcunit = None
-
-        if destmeta:
-            destunit = destmeta[0][1]
-            if destunit:
-                destunit = PhysicalQuantity(1., destunit).unit
-        else:
-            destunit = None
-
-        if destunit and srcunit:
-            if destunit.powers != srcunit.powers or \
-               destunit.factor != srcunit.factor or \
-               destunit.offset != srcunit.offset:
-                return 'units'
-
-        return None
 
     def list_pseudocomps(self):
         return [data['pcomp'].name for u, v, data in

@@ -281,16 +281,15 @@ class PseudoComponent(object):
     def contains(self, name):
         return name == 'out0' or name in self._inputs
 
-    def make_connections(self, scope, driver=None):
+    def make_connections(self, graph, driver=None):
         """Connect all of the inputs and outputs of this comp to
         the appropriate nodes in the dependency graph.
         """
         for src, dest in self.list_connections():
-            scope.connect(src, dest)
+            graph.connect(self.parent, src, dest)
 
         if driver is not None:
-            scope._depgraph.add_driver_input(driver.name,
-                                             self.name+'.out0')
+            graph.add_driver_input(driver.name, self.name+'.out0')
 
     def run(self, case_uuid=''):
         if self._negate:
@@ -587,3 +586,40 @@ class UnitConversionPComp(PseudoComponent):
         """
 
         result['in0'][:] += self.grad*arg['out0'][:]
+
+
+def needs_pseudo(srcexpr, destexpr):
+    """Return a non-None pseudo_type if srcexpr and destexpr require a
+    pseudocomp to be created.
+    """
+    srcrefs = list(srcexpr.refs())
+    if srcrefs and srcrefs[0] != srcexpr.text:
+        # expression is more than just a simple variable reference,
+        # so we need a pseudocomp
+        return 'multi_var_expr'
+
+    destmeta = destexpr.get_metadata('units')
+    srcmeta = srcexpr.get_metadata('units')
+
+    # compare using get_unit_name() to account for unit aliases
+    if srcmeta:
+        srcunit = srcmeta[0][1]
+        if srcunit:
+            srcunit = PhysicalQuantity(1., srcunit).unit
+    else:
+        srcunit = None
+
+    if destmeta:
+        destunit = destmeta[0][1]
+        if destunit:
+            destunit = PhysicalQuantity(1., destunit).unit
+    else:
+        destunit = None
+
+    if destunit and srcunit:
+        if destunit.powers != srcunit.powers or \
+           destunit.factor != srcunit.factor or \
+           destunit.offset != srcunit.offset:
+            return 'units'
+
+    return None
