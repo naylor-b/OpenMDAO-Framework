@@ -169,9 +169,11 @@ class DependsTestCase(unittest.TestCase):
         self.top.disconnect('comp8')
         
     def test_disconnect2(self):
+        self.top._setup()
         self.assertEqual(set(self.top._depgraph.list_outputs('sub', connected=True)),
                          set(['sub.d3','sub.c4']))
         self.top.disconnect('comp8')
+        self.top._setup()
         self.assertEqual(self.top._depgraph.list_outputs('sub', connected=True),
                          [])
         self.assertEqual(self.top.sub._exprmapper.get_source('c4'), 'comp4.c')
@@ -285,6 +287,7 @@ class DependsTestCase(unittest.TestCase):
         sub.add('driver', DumbDriver())
         sub.driver.add_objective('comp6.c')
         sub.driver.add_objective('comp5.d')
+        self.top._setup()
         self.assertEqual(sub.driver._get_required_compnames(),
                          set(['comp5', 'comp6', '_pseudo_0', '_pseudo_1']))
         sub.driver.add_parameter('comp2.a', low=0.0, high=10.0)
@@ -681,7 +684,7 @@ class ExprDependsTestCase(unittest.TestCase):
                 visited.add(obj)
                 if isinstance(obj, Assembly):
                     connection_set.update(obj.list_connections())
-                    connection_set.update(obj._exprmapper.list_connections())
+                    connection_set.update(obj._exprmapper.list_connections(obj))
                     connection_set.update(obj._depgraph.list_connections())
                     for name in obj.list_containers():
                         comp = getattr(obj, name)
@@ -700,6 +703,7 @@ class ExprDependsTestCase(unittest.TestCase):
         self.assertEqual(set(top.sub.list_connections())-initial_connections, 
                          set([('comp1.c','comp3.b')]))
         top.sub.disconnect('comp1')
+        top._setup()
         self.assertEqual(set(top.sub.list_connections())-initial_connections, set())
         for u,v in self._all_nested_connections(top.sub):
             self.assertTrue('comp1.' not in u and 'comp1.' not in v)

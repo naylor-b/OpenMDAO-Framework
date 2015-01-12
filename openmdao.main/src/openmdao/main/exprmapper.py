@@ -252,7 +252,7 @@ class ExprMapper(object):
                 pseudocomp.make_connections(graph)
             else:
                 graph.connect(scope, src, dest)
-
+        return graph
 
     def list_pseudocomps(self):
         return [data['pcomp'].name for u, v, data in

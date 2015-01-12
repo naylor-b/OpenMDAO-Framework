@@ -509,8 +509,8 @@ class Assembly(Component):
         super(Assembly, self).check_config(strict=strict)
         self._check_input_collisions()
         self._check_unset_req_vars()
-        self._check_unexecuted_comps(strict)
-
+        self._check_unexecuted_comps(strict=strict)
+        
     def _check_input_collisions(self):
         graph = self._depgraph
         dests = set([v for u, v in self.list_connections() if 'drv_conn_ext' not in graph[u][v]])
@@ -540,6 +540,7 @@ class Assembly(Component):
 
     def _check_unexecuted_comps(self, strict):
         self._unexecuted = []
+        pre = []
         cgraph = self._depgraph.component_graph()
         wfcomps = set([c.name for c in self.driver.iteration_set()])
         wfcomps.add('driver')
@@ -563,24 +564,12 @@ class Assembly(Component):
                 msg += ": %s" % pre
                 errfunct(msg)
 
-                ## HACK ALERT!
-                ## If there are upstream comps that are not in any workflow,
-                ## create a hidden top level driver called _pre_driver. That
-                ## driver will be executed once per execution of the Assembly.
-
-                # can't call add here for _pre_driver because that calls
-                # config_changed...
-                self._pre_driver = Driver()
-                self._pre_driver.parent = self
-                pre.append('driver') # run the normal top driver after running the 'pre' comps
-                self._pre_driver.workflow.add(pre)
-                self._pre_driver.name = '_pre_driver'
-                self._depgraph.add_node('_pre_driver', comp=True, driver=True)
-
             if post:
                 errfunct("The following components are not in any workflow"
                          " and WILL NOT EXECUTE: %s" % list(diff))
                 self._unexecuted = list(post)
+                
+        return pre
 
     def _check_unset_req_vars(self):
         """Find 'required' variables that have not been set."""
@@ -750,8 +739,6 @@ class Assembly(Component):
         for example, children are added or removed, connections are made
         or removed, etc.
         """
-        self._depgraph = None
-        
         super(Assembly, self).config_changed(update_parent)
 
         # drivers must tell workflows that config has changed because
@@ -1269,6 +1256,23 @@ class Assembly(Component):
      
         self._exprmapper.setup_depgraph(self, self._depgraph)
        
+        precomps = self._check_unexecuted_comps(False)
+
+        if precomps:
+            ## HACK ALERT!
+            ## If there are upstream comps that are not in any workflow,
+            ## create a hidden top level driver called _pre_driver. That
+            ## driver will be executed once per execution of the Assembly.
+    
+            # can't call add here for _pre_driver because that calls
+            # config_changed...
+            self._pre_driver = Driver()
+            self._pre_driver.parent = self
+            precomps.append('driver') # run the normal top driver after running the 'pre' comps
+            self._pre_driver.workflow.add(precomps)
+            self._pre_driver.name = '_pre_driver'
+            self._depgraph.add_node('_pre_driver', comp=True, driver=True)
+
         for comp in self.get_comps():
             comp.setup_depgraph(self._depgraph)
 
